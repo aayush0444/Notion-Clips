@@ -121,7 +121,7 @@ def render():
     with st.expander("📖 How to set up Notion (3 quick steps)", expanded=False):
         st.markdown("""
         **1. Create an Integration**
-        - Go to [notion.so/my-integrations](https://www.notion.so/my-integrations)
+        - Go to [notion.so/my-integrations](https://www.notion.so/profile/integrations/internal)
         - Click **+ New integration** → name it anything → Submit
         - Copy the token — starts with `ntn_`
 
