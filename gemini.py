@@ -1,42 +1,79 @@
 import os
+import streamlit as st
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from models import ActionItemList, MeetingSummary, VideoInsights
 
 # ─── Model Selection ──────────────────────────────────────────────────────────
 #
-# Supports two AI providers:
+# Priority order for API keys:
+#   1. User's own key from .env / Settings page  (they entered it themselves)
+#   2. App's shared OpenRouter key from Streamlit secrets  (your key, pre-provided)
 #
-#   1. Google Gemini  → set GOOGLE_API_KEY in .env  (default)
-#   2. OpenRouter     → set OPENROUTER_API_KEY in .env
-#      Lets you use GPT-4o, Claude, Mistral etc. without changing any code
-#      Get a free key at: https://openrouter.ai/keys
-#
-# Which one is used?
-#   If OPENROUTER_API_KEY exists in .env → OpenRouter
-#   Otherwise → Gemini automatically
+# This means:
+#   - Most users just enter Notion credentials and go — AI is handled for them
+#   - Power users can override with their own key if they want
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-OPENROUTER_MODEL    = "openai/gpt-4o-mini"   # cheap + fast, good for testing
-                                               # swap to: "anthropic/claude-3-haiku"
-                                               #          "mistralai/mistral-7b-instruct"
-                                               #          "openai/gpt-4o"
+OPENROUTER_MODEL    = "openai/gpt-4o-mini"
+
+
+def get_openrouter_key():
+    """
+    Get OpenRouter key — user's own first, then fall back to app's shared key.
+    Checks Streamlit secrets safely (won't crash if secret doesn't exist).
+    """
+    # 1. User's own key from .env
+    user_key = os.getenv("OPENROUTER_API_KEY")
+    if user_key:
+        return user_key
+
+    # 2. App's shared key from Streamlit Cloud secrets
+    try:
+        app_key = st.secrets.get("OPENROUTER_API_KEY", "")
+        if app_key:
+            return app_key
+    except Exception:
+        pass  # Running locally without secrets — that's fine
+
+    return None
+
+
+def get_google_key():
+    """Get Google Gemini key from .env or Streamlit secrets."""
+    user_key = os.getenv("GOOGLE_API_KEY")
+    if user_key:
+        return user_key
+    try:
+        return st.secrets.get("GOOGLE_API_KEY", "")
+    except Exception:
+        return None
+
 
 def get_model():
-    openrouter_key = os.getenv("OPENROUTER_API_KEY")
-
-    if openrouter_key:
-        # OpenRouter uses the same interface as OpenAI, just a different base URL
-        print(f"  🔀 Using OpenRouter → {OPENROUTER_MODEL}")
+    """
+    Returns the best available model.
+    OpenRouter is preferred (cheaper, more flexible).
+    Falls back to Gemini if OpenRouter key not available.
+    """
+    or_key = get_openrouter_key()
+    if or_key:
         return ChatOpenAI(
             model=OPENROUTER_MODEL,
-            api_key=openrouter_key,
+            api_key=or_key,
             base_url=OPENROUTER_BASE_URL,
             temperature=0
         )
-    else:
-        # Default: Google Gemini
+
+    g_key = get_google_key()
+    if g_key:
         return ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0)
+
+    # No key found at all
+    raise ValueError(
+        "No AI API key found. Please add your Gemini or OpenRouter key in Settings, "
+        "or contact support if you're using the hosted version."
+    )
 
 
 # ─── Meeting Mode Extraction ──────────────────────────────────────────────────
@@ -121,8 +158,8 @@ def deduplicate_tasks(task_data: ActionItemList) -> ActionItemList:
 
 def calculate_accuracy(task_list: ActionItemList) -> float:
     """
-    Score task extraction quality based on completeness of each task.
-    - 40pts: task has a meaningful description (3+ words)
+    Score task extraction quality based on completeness.
+    - 40pts: meaningful task description (3+ words)
     - 25pts: specific assignee (not just "Team")
     - 20pts: actual due date (not TBD)
     - 15pts: valid priority value
