@@ -1,7 +1,11 @@
 import time
 import streamlit as st
 from pages_ui.components import page_header, render_youtube_result, save_to_history
-
+try:
+    key = st.secrets.get("OPENROUTER_API_KEY", "")
+    st.write(f"Key found: {bool(key)} | Length: {len(key)}")
+except:
+    st.write("No secrets found")
 
 def render():
     page_header("🎬", "YouTube Mode", "Paste any YouTube URL — get insights without watching")
