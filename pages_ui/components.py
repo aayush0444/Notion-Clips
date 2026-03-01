@@ -154,11 +154,15 @@ def render_youtube_result(result: dict):
 
 def save_to_history(mode: str, title: str, result: dict):
     """Save a run to session history."""
+    tasks = result.get("tasks")
+    # Safely get task count — tasks can be None if not extracted
+    task_count = len(tasks.items) if (tasks and tasks.items) else 0
+
     entry = {
         "mode":            mode,
         "title":           title,
         "timestamp":       datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "task_count":      len(result.get("tasks").items) if result.get("tasks") else 0,
+        "task_count":      task_count,
         "processing_time": result.get("processing_time", 0),
         "accuracy":        result.get("accuracy", 0),
         "result":          result,
