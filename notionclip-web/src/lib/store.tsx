@@ -17,6 +17,10 @@ interface AppState {
   setResults: (val: any) => void
   transcript: string | null
   setTranscript: (val: string | null) => void
+  processingTime: number | null
+  setProcessingTime: (val: number | null) => void
+  wordCount: number | null
+  setWordCount: (val: number | null) => void
   reset: () => void
 }
 
@@ -30,6 +34,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [mode, setMode] = useState<Mode>('study')
   const [results, setResults] = useState<any | null>(null)
   const [transcript, setTranscript] = useState<string | null>(null)
+  const [processingTime, setProcessingTime] = useState<number | null>(null)
+  const [wordCount, setWordCount] = useState<number | null>(null)
 
   useEffect(() => {
     let id = localStorage.getItem("notionclip_session_id")
@@ -58,6 +64,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setVideoId(null)
     setResults(null)
     setTranscript(null)
+    setProcessingTime(null)
+    setWordCount(null)
   }
 
   return (
@@ -65,7 +73,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       sessionId, isConnected, setIsConnected,
       url, setUrl, videoId, setVideoId,
       mode, setMode, results, setResults,
-      transcript, setTranscript, reset
+      transcript, setTranscript, processingTime, setProcessingTime,
+      wordCount, setWordCount, reset
     }}>
       {children}
     </AppContext.Provider>

@@ -1,5 +1,5 @@
 "use client"
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAppStore } from '@/lib/store'
 import { api } from '@/lib/api'
 import { Button } from '@/components/ui/Button'
@@ -7,16 +7,23 @@ import { Loader2 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
 export function ProcessButton() {
-  const { url, videoId, mode, setResults, setTranscript } = useAppStore()
+  const { url, videoId, mode, setResults, setTranscript, setProcessingTime, setWordCount } = useAppStore()
   const [loading, setLoading] = useState(false)
   const [step, setStep] = useState("")
+  const [error, setError] = useState("")
+
+  useEffect(() => {
+    setError("")
+  }, [url])
 
   const handleProcess = async () => {
     if (!videoId) return
     setLoading(true)
     setResults(null)
+    setError("")
     
     try {
+      const start = Date.now()
       setStep("Fetching transcript...")
       const { transcript } = await api.getTranscript(videoId)
       setTranscript(transcript)
@@ -24,16 +31,20 @@ export function ProcessButton() {
       setStep(`Extracting with ${mode.charAt(0).toUpperCase() + mode.slice(1)} Mode...`)
       const extractRes = await api.extractInsights(transcript, mode)
       
+      setProcessingTime(Date.now() - start)
+      setWordCount(extractRes.word_count || 0)
+
       setStep("Done in 4s")
       setTimeout(() => {
         setResults(extractRes.insights)
         setLoading(false)
         setStep("")
       }, 500)
-    } catch (err) {
+    } catch (err: any) {
       console.error(err)
-      setStep("Error processing video.")
-      setTimeout(() => setLoading(false), 2000)
+      setError(err.message || "Failed to process video.")
+      setLoading(false)
+      setStep("")
     }
   }
 
@@ -59,6 +70,7 @@ export function ProcessButton() {
           )}
         </AnimatePresence>
       </Button>
+      {error && <p className="text-center text-sm text-danger mt-3">{error}</p>}
     </div>
   )
 }
