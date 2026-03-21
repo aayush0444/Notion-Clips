@@ -17,11 +17,9 @@ const config: Config = {
         danger: "#F87171",
         warning: "#FCD34D",
         muted: "#64748B",
-        card: {
-          DEFAULT: "rgba(255, 255, 255, 0.03)",
-          border: "rgba(255, 255, 255, 0.08)",
-          hover: "rgba(255, 255, 255, 0.16)",
-        }
+        border: "rgba(255, 255, 255, 0.08)",
+        "border-hover": "rgba(255, 255, 255, 0.16)",
+        card: "rgba(255, 255, 255, 0.03)",
       },
       fontFamily: {
         sans: ["var(--font-inter)", "sans-serif"],

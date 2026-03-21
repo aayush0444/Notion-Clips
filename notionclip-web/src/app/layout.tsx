@@ -22,6 +22,9 @@ export default function RootLayout({
         {/* Minimalist solid background overlay */}
         <div className="pointer-events-none fixed inset-0 z-0 bg-background" />
         
+        <div className="pointer-events-none fixed top-[-120px] right-[-100px] w-[500px] h-[500px] rounded-full bg-blue-500/[0.06] blur-[120px] z-0" />
+        <div className="pointer-events-none fixed bottom-[40px] left-[-80px] w-[400px] h-[400px] rounded-full bg-purple-500/[0.06] blur-[120px] z-0" />
+        
         <div className="relative z-10 flex flex-col min-h-screen">
           {children}
         </div>

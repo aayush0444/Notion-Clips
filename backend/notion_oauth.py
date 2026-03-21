@@ -64,13 +64,6 @@ def _decode_state(state: str) -> Dict[str, Optional[str]]:
         raise HTTPException(status_code=400, detail="Invalid state parameter") from exc
 
 
-class AuthCallbackResponse(BaseModel):
-    """Response after successfully exchanging a code for a token."""
-    status:         str
-    session_id:     str
-    workspace_name: Optional[str] = None
-
-
 class AuthStatusResponse(BaseModel):
     """OAuth status payload."""
     session_id:     str
@@ -95,8 +88,8 @@ def start_auth(
     """Redirect browser to Notion OAuth consent page.
 
     redirect_uri is intentionally NOT included in the authorization URL.
-    Notion uses the redirect URI registered in the integration settings
-    automatically. Including it in the URL causes a mismatch error.
+    Notion uses the redirect URI registered in the integration settings.
+    Including it in the URL causes a mismatch error.
     """
     _require_oauth_env()
     state = _encode_state(params["session_id"], params["notion_page_id"])
@@ -111,22 +104,24 @@ def start_auth(
     return RedirectResponse(url=auth_url)
 
 
-@router.get("/callback", response_model=AuthCallbackResponse)
+@router.get("/callback", response_model=None)
 def oauth_callback(
     code:  str = Query(...),
     state: str = Query(...),
-) -> AuthCallbackResponse:
-    """Handle Notion OAuth callback, exchange code for token, store session."""
+) -> RedirectResponse:
+    """Handle Notion OAuth callback, exchange code for token, store session,
+    then redirect user back to the frontend app page."""
     _require_oauth_env()
     state_payload  = _decode_state(state)
     session_id     = state_payload["session_id"]
     notion_page_id = state_payload.get("notion_page_id")
 
-    # redirect_uri IS required in the token exchange POST request
+    # Exchange code for access token
+    # Note: redirect_uri is NOT included here because it was not
+    # included in the authorize URL — they must match
     token_payload = {
-        "grant_type":   "authorization_code",
-        "code":         code,
-        
+        "grant_type": "authorization_code",
+        "code":       code,
     }
     auth_header = base64.b64encode(
         f"{NOTION_CLIENT_ID}:{NOTION_CLIENT_SECRET}".encode()
@@ -156,14 +151,12 @@ def oauth_callback(
             detail="Notion response missing access_token.",
         )
 
-    workspace_name = data.get("workspace_name")
     save_session(session_id, access_token, notion_page_id or "")
 
-    return AuthCallbackResponse(
-        status="ok",
-        session_id=session_id,
-        workspace_name=workspace_name,
-    )
+    # Redirect back to frontend — store.tsx detects ?connected=true
+    # and sets isConnected=true automatically
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+    return RedirectResponse(url=f"{frontend_url}/app?connected=true")
 
 
 @router.get("/status/{session_id}", response_model=AuthStatusResponse)
