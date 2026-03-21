@@ -11,6 +11,7 @@ from typing import Dict, Optional
 import requests
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 from backend.supabase_client import get_session, save_session
@@ -102,9 +103,9 @@ def _auth_params(
     return {"session_id": session_id, "notion_page_id": notion_page_id}
 
 
-@router.get("", response_model=AuthStartResponse)
-def start_auth(params: Dict[str, Optional[str]] = Depends(_auth_params)) -> AuthStartResponse:
-    """Return the Notion OAuth authorization URL."""
+@router.get("", response_model=None)
+def start_auth(params: Dict[str, Optional[str]] = Depends(_auth_params)) -> RedirectResponse:
+    """Redirect the requester to the Notion OAuth authorization URL."""
     _require_oauth_env()
     state = _encode_state(params["session_id"], params["notion_page_id"])
     scopes = NOTION_SCOPES.replace(" ", "")
@@ -117,7 +118,7 @@ def start_auth(params: Dict[str, Optional[str]] = Depends(_auth_params)) -> Auth
         f"&scope={scopes}"
         f"&state={state}"
     )
-    return AuthStartResponse(auth_url=auth_url)
+    return RedirectResponse(url=auth_url)
 
 
 @router.get("/callback", response_model=AuthCallbackResponse)
