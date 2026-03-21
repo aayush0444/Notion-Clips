@@ -59,6 +59,174 @@ MODE_INFO = {
     },
 }
 
+# Example questions shown in empty state, per mode
+_QA_EXAMPLES = {
+    "study": [
+        "Explain the core concept in simpler terms",
+        "Give me 3 harder exam questions on this topic",
+        "What formula should I memorise from this video?",
+        "What do students commonly get wrong here?",
+    ],
+    "work": [
+        "Which tool did they recommend and why?",
+        "What's the one thing my team should act on?",
+        "Summarise the key trade-offs mentioned",
+        "What decisions does this video imply we should make?",
+    ],
+    "quick": [
+        "What's the most surprising thing in this video?",
+        "Give me the one-sentence summary",
+        "Is there anything I should actually do after watching?",
+    ],
+}
+
+
+def _render_qa_section(used_mode: str):
+    """
+    Render the inline Q&A section with strict/open mode toggle.
+
+    strict = answers come ONLY from the transcript. Hard stop if not covered.
+             "This isn't covered in the video. The transcript covers: [topics]."
+    open   = transcript as primary context, broader knowledge allowed but every
+             addition is labelled "[Beyond the video:]" so the user knows.
+    """
+    transcript = st.session_state.get("qa_transcript", "")
+
+    st.markdown("""
+    <div style="margin-bottom:1rem;">
+        <div style="font-family:'Syne',sans-serif; font-size:1.1rem; font-weight:700;
+                    display:flex; align-items:center; gap:0.5rem; margin-bottom:0.3rem;">
+            <span>💬</span>
+            <span style="background:linear-gradient(135deg,#60A5FA,#A78BFA);
+                         -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+                         background-clip:text;">Ask About This Video</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if not transcript:
+        st.markdown("""
+        <div class="notify notify-info">
+            Transcript not in memory — process the video again above to enable Q&A.
+        </div>
+        """, unsafe_allow_html=True)
+        return
+
+    # ── Chat mode toggle ──────────────────────────────────────────────────────
+    chat_mode = st.session_state.get("chat_mode", "strict")
+
+    col_a, col_b, col_spacer = st.columns([1, 1, 3])
+    with col_a:
+        if st.button(
+            "✅ From this video" if chat_mode == "strict" else "📌 From this video",
+            key="qa_mode_strict",
+            use_container_width=True,
+            type="primary" if chat_mode == "strict" else "secondary"
+        ):
+            st.session_state["chat_mode"] = "strict"
+            st.rerun()
+    with col_b:
+        if st.button(
+            "✅ Topic chat" if chat_mode == "open" else "🌐 Topic chat",
+            key="qa_mode_open",
+            use_container_width=True,
+            type="primary" if chat_mode == "open" else "secondary"
+        ):
+            st.session_state["chat_mode"] = "open"
+            st.rerun()
+
+    mode_desc = (
+        "Answers come only from this video's transcript — no external knowledge added."
+        if chat_mode == "strict" else
+        "Uses the video as context, can go deeper on the topic. Extra info is labelled [Beyond the video:]."
+    )
+    st.markdown(
+        f'<div style="font-size:0.78rem; opacity:0.45; margin:0.3rem 0 1rem 0;">{mode_desc}</div>',
+        unsafe_allow_html=True
+    )
+
+    # Ensure history list exists
+    if "qa_history" not in st.session_state:
+        st.session_state["qa_history"] = []
+
+    # ── Empty state — example questions ──────────────────────────────────────
+    if not st.session_state["qa_history"]:
+        st.markdown("""
+        <div style="font-size:0.8rem; opacity:0.45; margin-bottom:0.6rem;">
+            Not sure what to ask? Try one of these:
+        </div>
+        """, unsafe_allow_html=True)
+
+        examples = _QA_EXAMPLES.get(used_mode, _QA_EXAMPLES["quick"])
+        cols = st.columns(len(examples))
+        for col, example in zip(cols, examples):
+            with col:
+                if st.button(
+                    example,
+                    key=f"qa_example_{example[:20]}",
+                    use_container_width=True
+                ):
+                    st.session_state["qa_pending"] = example
+                    st.rerun()
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Render existing chat history ──────────────────────────────────────────
+    for message in st.session_state["qa_history"]:
+        with st.chat_message(message["role"]):
+            st.write(message["content"])
+
+    # ── Input row ─────────────────────────────────────────────────────────────
+    input_col, btn_col = st.columns([5, 1])
+
+    with input_col:
+        user_question = st.text_input(
+            "Your question",
+            value=st.session_state.pop("qa_pending", ""),
+            placeholder=_QA_EXAMPLES.get(used_mode, ["Ask anything..."])[0],
+            label_visibility="collapsed",
+            key="qa_text_input"
+        )
+
+    with btn_col:
+        st.markdown("<br>", unsafe_allow_html=True)
+        ask_clicked = st.button("Ask →", use_container_width=True, key="qa_ask_btn")
+
+    # ── Handle submission ─────────────────────────────────────────────────────
+    if ask_clicked and user_question.strip():
+        question = user_question.strip()
+
+        # Snapshot history BEFORE appending — model must not see question twice
+        history_before = list(st.session_state["qa_history"])
+        st.session_state["qa_history"].append({"role": "user", "content": question})
+
+        with st.chat_message("user"):
+            st.write(question)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                from gemini import answer_question
+                answer = answer_question(
+                    question=question,
+                    transcript=transcript,
+                    mode=used_mode,
+                    chat_history=history_before,
+                    chat_mode=chat_mode      # ← passes strict or open
+                )
+            st.write(answer)
+
+        st.session_state["qa_history"].append({"role": "assistant", "content": answer})
+        st.rerun()
+
+    # ── Clear conversation ────────────────────────────────────────────────────
+    if st.session_state.get("qa_history"):
+        st.markdown("<br>", unsafe_allow_html=True)
+        col_clear, _ = st.columns([1, 4])
+        with col_clear:
+            if st.button("🗑️ Clear conversation", use_container_width=True, key="qa_clear"):
+                st.session_state["qa_history"] = []
+                st.rerun()
+
 
 def render():
     page_header("🎬", "YouTube Mode", "Paste any YouTube URL — get insights without watching")
@@ -147,7 +315,7 @@ def render():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Section toggles (shown for Quick mode only — Study/Work have fixed sections)
+    # Section toggles (Quick mode only — Study/Work have fixed sections)
     if prefs["mode"] == "quick":
         st.markdown(
             "<div style='font-size:0.85rem; opacity:0.6; margin-bottom:0.5rem;'>Choose sections:</div>",
@@ -176,7 +344,6 @@ def render():
             st.markdown('<div class="notify notify-error">Select at least one section.</div>',
                         unsafe_allow_html=True)
     else:
-        # Study / Work modes — show what will be extracted
         mode_info = MODE_INFO[prefs["mode"]]
         if prefs["mode"] == "study":
             st.markdown(f"""
@@ -226,7 +393,6 @@ def render():
                 word_count = len(transcript.split())
                 st.write(f"✅ Transcript ready — {word_count:,} words (~{duration:.0f} min video)")
 
-                # Warn about chunked processing for long videos
                 if word_count > 8000:
                     st.write(
                         f"📦 Long video detected — using chunked extraction "
@@ -235,7 +401,6 @@ def render():
 
                 start = time.time()
 
-                # Build sections dict for quick mode
                 sections = {
                     "summary":       prefs.get("summary", True),
                     "key_takeaways": prefs.get("key_takeaways", True),
@@ -272,6 +437,14 @@ def render():
                     "word_count":      word_count,
                 }
                 st.session_state["youtube_result"] = result
+
+                # Store raw transcript for Q&A — reset history and mode for new video
+                st.session_state["qa_transcript"] = transcript
+                st.session_state["qa_history"]    = []
+                st.session_state["chat_mode"]     = "strict"   # always reset to strict
+                if "qa_pending" in st.session_state:
+                    del st.session_state["qa_pending"]
+
                 status.update(label=f"✅ Done in {proc_time:.1f}s!", state="complete")
 
             except Exception as e:
@@ -289,8 +462,8 @@ def render():
     if result:
         st.markdown("---")
 
-        used_mode = result.get("mode", "quick")
-        used_info = MODE_INFO.get(used_mode, MODE_INFO["quick"])
+        used_mode  = result.get("mode", "quick")
+        used_info  = MODE_INFO.get(used_mode, MODE_INFO["quick"])
         word_count = result.get("word_count", 0)
 
         st.markdown(f"""
@@ -303,7 +476,6 @@ def render():
         </div>
         """, unsafe_allow_html=True)
 
-        # Route to the correct renderer
         if used_mode == "study":
             render_study_notes(result)
         elif used_mode == "work":
@@ -321,11 +493,9 @@ def render():
                         if used_mode == "study":
                             from push_to_notion import push_study_notes
                             push_study_notes(result["insights"], result["url"])
-
                         elif used_mode == "work":
                             from push_to_notion import push_work_brief
                             push_work_brief(result["insights"], result["url"])
-
                         else:
                             from push_to_notion import push_youtube
                             push_youtube(
@@ -336,12 +506,9 @@ def render():
                             )
 
                         status.update(label="✅ Pushed to Notion!", state="complete")
-
-                        # Build title for history
                         insights = result.get("insights")
                         title = getattr(insights, "title", "YouTube Video") or "YouTube Video"
                         save_to_history("youtube", title, result)
-
                         st.markdown(
                             '<div class="notify notify-success">✅ Saved to Notion!</div>',
                             unsafe_allow_html=True
@@ -352,6 +519,11 @@ def render():
 
         with col2:
             if st.button("🗑️ Clear & Process Another", use_container_width=True):
-                if "youtube_result" in st.session_state:
-                    del st.session_state["youtube_result"]
+                for k in ["youtube_result", "qa_transcript", "qa_history", "qa_pending", "chat_mode"]:
+                    if k in st.session_state:
+                        del st.session_state[k]
                 st.rerun()
+
+        # ── Q&A Section ───────────────────────────────────────────────────────
+        st.markdown("---")
+        _render_qa_section(used_mode)

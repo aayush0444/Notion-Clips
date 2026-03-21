@@ -236,7 +236,14 @@ CRITICAL RULES — follow these exactly:
    {('Include (≈MM:SS) timestamps — e.g. (≈08:30) — where [MM:SS] markers appear next to facts.' if has_timestamps else 'Do NOT add any timestamps — this transcript has no timing data. Invented timestamps destroy user trust.')}
 7. self_test: Generate {profile['self_test']} exam-style questions answerable from the extracted facts.
    Mix: definition, calculation, conceptual, application. Questions only — no answers.
-8. common_mistakes: Only include mistakes that were explicitly in the extracted data.
+8. common_mistakes: Identify 2-4 errors students commonly make about the SPECIFIC
+   concepts taught in this video. Two sources are valid:
+   (a) Anything explicitly warned about in the extracted data.
+   (b) Errors that naturally arise from the specific content taught — e.g. if the video
+       teaches centripetal acceleration points inward, a natural mistake is thinking it
+       points outward (centrifugal force confusion).
+   Be specific to THIS content. Generic advice like "study more carefully" is not valid.
+   Do NOT return an empty list unless the video is purely motivational with zero technical content.
 9. prerequisites: Be specific — name the exact concept, not a general field.
 10. further_reading: Only if genuinely implied by the content. Chapter + book + author minimum.
 
@@ -330,7 +337,13 @@ ABSOLUTE RULES — violating these makes the output useless:
 4. self_test: {profile['self_test']} questions. Must be answerable from transcript alone.
    Mix definition, calculation, conceptual, and application questions.
 5. core_concept: ONE sentence maximum. The single most important idea.
-6. common_mistakes: Only if explicitly discussed. Empty list is fine.
+6. common_mistakes: Identify 2-4 errors students commonly make about the SPECIFIC
+   concepts taught in this video. Two sources are valid:
+   (a) Anything the speaker explicitly warns about or corrects.
+   (b) Errors that naturally arise from the specific content — e.g. if the video
+       teaches that a·sinθ = nλ gives MINIMA, a natural mistake is thinking it gives maxima.
+   Be specific to THIS content. Generic study advice is not valid.
+   Do NOT return an empty list unless the video has zero technical content.
 7. further_reading: Chapter + book + author. Empty list if nothing implied.
 
 VIDEO TRANSCRIPT:
@@ -528,6 +541,134 @@ TRANSCRIPT:
 """
     return structured_llm.invoke(prompt)
 
+
+
+# ─── Q&A — Follow-up questions grounded in the transcript ────────────────────
+
+# ── Strict mode: transcript-only, hard stop if not covered ───────────────────
+_QA_STRICT_PROMPTS = {
+    "study": """You are a subject-matter expert answering questions about a specific video.
+Your ONLY source of information is the transcript provided below.
+
+HARD STOP RULE — read this first and follow it exactly:
+If the user's question cannot be answered using the transcript, your ENTIRE
+response must be this and nothing else:
+"This isn't covered in the video. The transcript covers: [list 3-5 main topics
+from the transcript in one line]. Ask me something about those."
+Do not add information from outside the transcript under ANY circumstance —
+not even as a helpful addition, not even if you are certain it is correct.
+A student studying for an exam needs to know what THIS video said, not your general knowledge.
+
+When the answer IS in the transcript:
+- Answer precisely and completely using only transcript content.
+- If asked for a simpler explanation: use plain English and analogies but only
+  for concepts that actually appear in the transcript.
+- If asked for harder questions or practice problems: generate them strictly
+  from the content of the transcript, not general subject knowledge.
+- Use bullet points for lists, prose for explanations.
+
+Here is the full transcript of the video:
+
+{transcript}""",
+
+    "work": """You are a senior professional answering questions about a specific video.
+Your ONLY source of information is the transcript provided below.
+
+HARD STOP RULE:
+If the question cannot be answered from the transcript, respond with only:
+"This isn't covered in the video. The transcript covers: [3-5 topics in one line]."
+Do not speculate or add external knowledge under any circumstance.
+
+When the answer IS in the transcript:
+- Be direct. One paragraph maximum unless a list is genuinely clearer.
+- For tool questions: give exact names and context from the transcript only.
+
+Here is the full transcript of the video:
+
+{transcript}""",
+
+    "quick": """You are answering a quick question about a specific video.
+Use ONLY what is in the transcript below.
+If the answer is not there, say only: "That wasn't in the video."
+When it is there, answer conversationally in 2-3 sentences.
+
+Here is the full transcript of the video:
+
+{transcript}""",
+}
+
+# ── Open mode: video as context, broader knowledge allowed and labelled ───────
+_QA_OPEN_PROMPTS = {
+    "study": """You are a subject-matter expert and patient tutor.
+The student just watched the video whose transcript is below.
+Use the transcript as your primary source, but you may draw on broader knowledge
+to help the student understand deeply.
+
+LABELLING RULE — follow this exactly:
+- If your answer comes directly from the transcript: answer normally.
+- If you are adding information NOT in the transcript: start that sentence or
+  paragraph with "[Beyond the video:]" so the student knows.
+
+This lets the student know what to expect from an exam on this video vs what
+is additional background context.
+
+Here is the transcript:
+
+{transcript}""",
+
+    "work": """You are a senior professional. The user watched a video and wants to discuss the topic.
+Use the transcript as your primary source but you may draw on general professional knowledge.
+When you go beyond what the video said, clearly start with "[Beyond the video:]"
+
+Here is the transcript:
+
+{transcript}""",
+
+    "quick": """You are a knowledgeable friend explaining a video topic.
+Answer conversationally. You can go beyond the video if helpful —
+just note briefly when you do with "(not from the video)".
+
+Here is the transcript:
+
+{transcript}""",
+}
+
+
+def answer_question(
+    question: str,
+    transcript: str,
+    mode: str,
+    chat_history: list,
+    chat_mode: str = "strict"
+) -> str:
+    """
+    Answer a follow-up question about a video.
+
+    Args:
+        question:     the user's current question
+        transcript:   full raw transcript text from the processed video
+        mode:         "study" | "work" | "quick" — changes the answering persona
+        chat_history: list of {"role": "user"|"assistant", "content": str}
+                      Must NOT include the current question.
+        chat_mode:    "strict" — answers only from transcript, hard stop if not covered
+                      "open"   — transcript as context, broader knowledge allowed but labelled
+
+    Returns:
+        answer as a plain string
+    """
+    prompt_map = _QA_STRICT_PROMPTS if chat_mode == "strict" else _QA_OPEN_PROMPTS
+    system_template = prompt_map.get(mode, prompt_map["quick"])
+    system_content  = system_template.format(transcript=transcript)
+
+    messages = [{"role": "system", "content": system_content}]
+
+    for turn in chat_history:
+        messages.append({"role": turn["role"], "content": turn["content"]})
+
+    messages.append({"role": "user", "content": question})
+
+    response = get_model().invoke(messages)
+    return response.content
 
 # ─── Utilities ────────────────────────────────────────────────────────────────
 
