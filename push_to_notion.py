@@ -2,7 +2,7 @@ import os
 import requests
 import streamlit as st
 from dotenv import load_dotenv
-from models import ActionItemList, MeetingSummary, VideoInsights
+from models import ActionItemList, MeetingSummary, VideoInsights, StudyNotes, WorkBrief
 
 load_dotenv()
 
@@ -62,6 +62,15 @@ def make_bullet(text: str) -> dict:
         }
     }
 
+def make_numbered(text: str) -> dict:
+    return {
+        "object": "block",
+        "type": "numbered_list_item",
+        "numbered_list_item": {
+            "rich_text": [{"type": "text", "text": {"content": text[:2000]}}]
+        }
+    }
+
 def make_heading(text: str) -> dict:
     return {
         "object": "block",
@@ -84,6 +93,124 @@ def make_callout(text: str, emoji: str = "💡", color: str = "blue_background")
             "color": color
         }
     }
+
+def make_quote(text: str) -> dict:
+    return {
+        "object": "block",
+        "type": "quote",
+        "quote": {
+            "rich_text": [{"type": "text", "text": {"content": text[:2000]}}]
+        }
+    }
+
+def make_code(text: str, language: str = "plain text") -> dict:
+    return {
+        "object": "block",
+        "type": "code",
+        "code": {
+            "rich_text": [{"type": "text", "text": {"content": text[:2000]}}],
+            "language": language
+        }
+    }
+
+def make_paragraph(text: str) -> dict:
+    return {
+        "object": "block",
+        "type": "paragraph",
+        "paragraph": {
+            "rich_text": [{"type": "text", "text": {"content": text[:2000]}}]
+        }
+    }
+
+def make_toggle(question: str, answer_placeholder: str) -> dict:
+    """
+    Toggle block: question is visible title.
+    Answer placeholder is inside — hidden until the user clicks to expand.
+    This forces active recall: student must attempt the answer before opening.
+    """
+    return {
+        "object": "block",
+        "type": "toggle",
+        "toggle": {
+            "rich_text": [{"type": "text", "text": {"content": question[:2000]}}],
+            "children": [
+                {
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [
+                            {
+                                "type": "text",
+                                "text": {"content": answer_placeholder[:2000]},
+                                "annotations": {"italic": True, "color": "gray"}
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+    }
+
+def make_todo(text: str, checked: bool = False) -> dict:
+    """Notion checkbox item — actually checkable in the Notion UI."""
+    return {
+        "object": "block",
+        "type": "to_do",
+        "to_do": {
+            "rich_text": [{"type": "text", "text": {"content": text[:2000]}}],
+            "checked": checked
+        }
+    }
+
+def make_tools_paragraph(tools: list) -> dict:
+    """
+    Renders tool names as inline code spans in a single paragraph.
+    Each tool name gets code annotation (monospaced, slight background).
+    """
+    rich_text = []
+    for i, tool in enumerate(tools):
+        rich_text.append({
+            "type": "text",
+            "text": {"content": tool},
+            "annotations": {"code": True}
+        })
+        if i < len(tools) - 1:
+            rich_text.append({
+                "type": "text",
+                "text": {"content": "   "}
+            })
+    return {
+        "object": "block",
+        "type": "paragraph",
+        "paragraph": {"rich_text": rich_text}
+    }
+
+def make_bookmark(url: str) -> dict:
+    return {
+        "object": "block",
+        "type": "bookmark",
+        "bookmark": {"url": url}
+    }
+
+def _create_page(parent_page_id: str, title: str, emoji: str, blocks: list) -> str:
+    """Create a Notion page and return its ID. Raises on failure."""
+    parent_page_id = clean_page_id(parent_page_id)
+    payload = {
+        "parent": {"type": "page_id", "page_id": parent_page_id},
+        "icon": {"type": "emoji", "emoji": emoji},
+        "properties": {
+            "title": {"title": [{"text": {"content": title}}]}
+        },
+        "children": blocks
+    }
+    response = requests.post(
+        "https://api.notion.com/v1/pages",
+        json=payload,
+        headers=get_headers()
+    )
+    if response.status_code != 200:
+        raise Exception(f"Page creation failed: {response.json().get('message')}")
+    return response.json().get("id")
 
 def create_tasks_database(title: str, parent_page_id: str) -> str | None:
     parent_page_id = clean_page_id(parent_page_id)
@@ -186,7 +313,7 @@ def push_meeting(task_list: ActionItemList, summary: MeetingSummary):
             push_tasks_to_database(task_list, db_id)
 
 
-# ─── YouTube Mode ─────────────────────────────────────────────────────────────
+# ─── YouTube Quick Mode ───────────────────────────────────────────────────────
 
 def push_youtube(
     insights: VideoInsights,
@@ -195,7 +322,7 @@ def push_youtube(
     sections: dict = None
 ):
     """
-    Push YouTube notes to Notion.
+    Push Quick mode YouTube notes to Notion.
     sections dict controls which blocks are included in the page.
     If sections is None, all blocks are included (backward compatible).
     """
@@ -209,17 +336,11 @@ def push_youtube(
 
     parent_page_id = clean_page_id(get_notion_page_id())
 
-    # Always include video bookmark at top
     page_blocks = [
-        {
-            "object": "block",
-            "type": "bookmark",
-            "bookmark": {"url": video_url}
-        },
+        make_bookmark(video_url),
         make_divider(),
     ]
 
-    # Add sections based on user preferences
     if sections.get("summary", True) and insights.summary:
         page_blocks.append(make_callout(insights.summary, "🎬", "yellow_background"))
         page_blocks.append(make_divider())
@@ -260,3 +381,156 @@ def push_youtube(
         db_id = create_tasks_database(insights.title, notes_page_id)
         if db_id:
             push_tasks_to_database(task_list, db_id)
+
+
+# ─── YouTube Study Mode ───────────────────────────────────────────────────────
+
+def push_study_notes(notes: StudyNotes, video_url: str):
+    """
+    Push Study Mode output to Notion.
+
+    Page structure:
+    - Video bookmark
+    - Core Concept callout (yellow — the thing to memorise)
+    - Formula Sheet as code blocks (monospaced)
+    - Key Facts as numbered list
+    - Common Mistakes as bullets
+    - Self-Test as toggle blocks (question visible, answer placeholder hidden inside)
+    - Prerequisites + Further Reading as bullets
+    """
+    parent_page_id = clean_page_id(get_notion_page_id())
+
+    blocks = [
+        make_bookmark(video_url),
+        make_divider(),
+
+        # Core concept — most important block on the page
+        make_callout(notes.core_concept, "📐", "yellow_background"),
+        make_divider(),
+    ]
+
+    # Formula sheet
+    if notes.formula_sheet:
+        blocks.append(make_heading("📋 Formula Sheet"))
+        for formula in notes.formula_sheet:
+            blocks.append(make_code(formula, language="plain text"))
+        blocks.append(make_divider())
+
+    # Key facts
+    if notes.key_facts:
+        blocks.append(make_heading("⚡ Key Facts"))
+        for fact in notes.key_facts:
+            blocks.append(make_numbered(fact))
+        blocks.append(make_divider())
+
+    # Common mistakes
+    if notes.common_mistakes:
+        blocks.append(make_heading("⚠️ Common Mistakes"))
+        for mistake in notes.common_mistakes:
+            blocks.append(make_bullet(f"⚠️ {mistake}"))
+        blocks.append(make_divider())
+
+    # Self-test — toggle blocks so answers are hidden
+    if notes.self_test:
+        blocks.append(make_heading("🧪 Self-Test"))
+        blocks.append(make_paragraph(
+            "Try to answer each question before expanding it. "
+            "Write your answer out — don't just think it."
+        ))
+        for question in notes.self_test:
+            blocks.append(make_toggle(
+                question=question,
+                answer_placeholder="[Write your answer here before opening — active recall works better than passive reading]"
+            ))
+        blocks.append(make_divider())
+
+    # Prerequisites
+    if notes.prerequisites:
+        blocks.append(make_heading("📚 Prerequisites"))
+        for prereq in notes.prerequisites:
+            blocks.append(make_bullet(prereq))
+
+    # Further reading
+    if notes.further_reading:
+        blocks.append(make_heading("📖 Further Reading"))
+        for resource in notes.further_reading:
+            blocks.append(make_bullet(resource))
+
+    _create_page(
+        parent_page_id=parent_page_id,
+        title=f"Study: {notes.title}",
+        emoji="📐",
+        blocks=blocks
+    )
+
+
+# ─── YouTube Work Mode ────────────────────────────────────────────────────────
+
+def push_work_brief(brief: WorkBrief, video_url: str):
+    """
+    Push Work Mode output to Notion.
+
+    Page structure:
+    - Video bookmark
+    - Watch/Skip callout (green or red based on verdict)
+    - One-liner as quote block
+    - Key Points as bullets
+    - Tools Mentioned as inline code spans
+    - Decisions to Make as checkbox (to_do) blocks — actually checkable
+    - Next Actions as bullets
+    """
+    parent_page_id = clean_page_id(get_notion_page_id())
+
+    # Determine watch/skip colour
+    verdict = brief.watch_or_skip.strip()
+    if verdict.lower().startswith("watch"):
+        verdict_emoji = "🟢"
+        verdict_color = "green_background"
+    else:
+        verdict_emoji = "🔴"
+        verdict_color = "red_background"
+
+    blocks = [
+        make_bookmark(video_url),
+        make_divider(),
+
+        # Watch/Skip verdict — most important thing at the top
+        make_callout(verdict, verdict_emoji, verdict_color),
+
+        # One-liner as a quote
+        make_quote(brief.one_liner),
+        make_divider(),
+    ]
+
+    # Key points
+    if brief.key_points:
+        blocks.append(make_heading("💡 Key Points"))
+        for point in brief.key_points:
+            blocks.append(make_bullet(point))
+        blocks.append(make_divider())
+
+    # Tools mentioned — inline code spans in one paragraph
+    if brief.tools_mentioned:
+        blocks.append(make_heading("🛠️ Tools Mentioned"))
+        blocks.append(make_tools_paragraph(brief.tools_mentioned))
+        blocks.append(make_divider())
+
+    # Decisions — actual Notion checkboxes
+    if brief.decisions_to_make:
+        blocks.append(make_heading("✅ Decisions to Make"))
+        for decision in brief.decisions_to_make:
+            blocks.append(make_todo(decision, checked=False))
+        blocks.append(make_divider())
+
+    # Next actions
+    if brief.next_actions:
+        blocks.append(make_heading("🚀 Next Actions"))
+        for action in brief.next_actions:
+            blocks.append(make_bullet(f"→ {action}"))
+
+    _create_page(
+        parent_page_id=parent_page_id,
+        title=f"Work Brief: {brief.title}",
+        emoji="💼",
+        blocks=blocks
+    )

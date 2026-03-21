@@ -131,48 +131,65 @@ def render():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Level 1: Section toggles ──────────────────────────────────────────
-    st.markdown("<div style='font-size:0.85rem; opacity:0.6; margin-bottom:0.5rem;'>Choose what appears in your Notion page:</div>",
-                unsafe_allow_html=True)
-
-    c1, c2, c3, c4, c5 = st.columns(5)
-    section_cols = {
-        "summary":       (c1, "📝 Summary"),
-        "key_takeaways": (c2, "🔑 Takeaways"),
-        "topics":        (c3, "📚 Topics"),
-        "action_items":  (c4, "✅ Actions"),
-        "get_tasks":     (c5, "🗂️ Task DB"),
-    }
-
-    for key, (col, label) in section_cols.items():
-        with col:
-            new_val = st.checkbox(label, value=prefs[key], key=f"sec_{key}")
-            if new_val != prefs[key]:
-                prefs[key] = new_val
-                save_preferences(prefs)
-
-    # Warn if nothing selected
-    any_content = any([
-        prefs["summary"], prefs["key_takeaways"],
-        prefs["topics"], prefs["action_items"], prefs["get_tasks"]
-    ])
-    if not any_content:
-        st.markdown('<div class="notify notify-error">Select at least one section to include in the output.</div>',
+    # ── Level 1: Section toggles (Quick Mode only — hidden for Study/Work) ─
+    if prefs["mode"] == "quick":
+        st.markdown("<div style='font-size:0.85rem; opacity:0.6; margin-bottom:0.5rem;'>Choose what appears in your Notion page:</div>",
                     unsafe_allow_html=True)
 
-    # Quick mode warning — sections auto-limited by the prompt
-    if prefs["mode"] == "quick":
+        c1, c2, c3, c4, c5 = st.columns(5)
+        section_cols = {
+            "summary":       (c1, "📝 Summary"),
+            "key_takeaways": (c2, "🔑 Takeaways"),
+            "topics":        (c3, "📚 Topics"),
+            "action_items":  (c4, "✅ Actions"),
+            "get_tasks":     (c5, "🗂️ Task DB"),
+        }
+
+        for key, (col, label) in section_cols.items():
+            with col:
+                new_val = st.checkbox(label, value=prefs[key], key=f"sec_{key}")
+                if new_val != prefs[key]:
+                    prefs[key] = new_val
+                    save_preferences(prefs)
+
+        # Warn if nothing selected
+        any_content = any([
+            prefs["summary"], prefs["key_takeaways"],
+            prefs["topics"], prefs["action_items"], prefs["get_tasks"]
+        ])
+        if not any_content:
+            st.markdown('<div class="notify notify-error">Select at least one section to include in the output.</div>',
+                        unsafe_allow_html=True)
+
         st.markdown("""
         <div class="notify notify-info" style="margin-top:0.5rem;">
             ⚡ Quick Mode caps output regardless of section selection —
             2-sentence summary, 3 takeaways, minimal topics.
         </div>
         """, unsafe_allow_html=True)
+    else:
+        # Study and Work modes produce fixed, structured output — sections not applicable
+        mode_info_current = MODE_INFO[prefs["mode"]]
+        st.markdown(f"""
+        <div class="notify notify-info" style="margin-top:0.5rem;">
+            {mode_info_current['icon']} <b>{mode_info_current['label']}</b> produces its own structured output —
+            section toggles apply to Quick Mode only.
+        </div>
+        """, unsafe_allow_html=True)
 
     st.markdown("---")
 
     # ── Run button ────────────────────────────────────────────────────────
-    can_run = bool(url_input) and any_content
+    # For Quick mode, check that at least one section is selected
+    if prefs["mode"] == "quick":
+        any_content = any([
+            prefs["summary"], prefs["key_takeaways"],
+            prefs["topics"], prefs["action_items"], prefs["get_tasks"]
+        ])
+        can_run = bool(url_input) and any_content
+    else:
+        can_run = bool(url_input)
+
     mode_info = MODE_INFO[prefs["mode"]]
 
     if st.button(
@@ -193,7 +210,7 @@ def render():
 
                 start = time.time()
 
-                # Build sections dict for gemini
+                # Build sections dict — used by Quick mode only
                 sections = {
                     "summary":       prefs["summary"],
                     "key_takeaways": prefs["key_takeaways"],
@@ -209,7 +226,8 @@ def render():
                 )
 
                 tasks_obj = None
-                if prefs["get_tasks"]:
+                # Task extraction only available in Quick mode (Study/Work have their own structure)
+                if prefs["mode"] == "quick" and prefs.get("get_tasks"):
                     st.write("🗂️ Extracting tasks...")
                     raw = extract_tasks(transcript)
                     tasks_obj = deduplicate_tasks(raw)
@@ -245,9 +263,8 @@ def render():
     if result:
         st.markdown("---")
 
-        # Show which mode was used
-        used_mode = result.get("mode", "study")
-        used_info = MODE_INFO.get(used_mode, MODE_INFO["study"])
+        used_mode = result.get("mode", "quick")
+        used_info = MODE_INFO.get(used_mode, MODE_INFO["quick"])
         st.markdown(f"""
         <div style="font-family:'Syne',sans-serif; font-size:1.1rem; font-weight:700;
                     color:#A78BFA; margin-bottom:0.5rem;">📊 Results</div>
@@ -256,7 +273,15 @@ def render():
         </div>
         """, unsafe_allow_html=True)
 
-        render_youtube_result(result)
+        # ── ROUTE RENDER by mode ──────────────────────────────────────────
+        if used_mode == "study":
+            from pages_ui.components import render_study_notes
+            render_study_notes(result)
+        elif used_mode == "work":
+            from pages_ui.components import render_work_brief
+            render_work_brief(result)
+        else:
+            render_youtube_result(result)
 
         st.markdown("---")
 
@@ -265,13 +290,22 @@ def render():
             if st.button("📤 Push to Notion", use_container_width=True):
                 with st.status("Pushing to Notion...", expanded=True) as status:
                     try:
-                        from push_to_notion import push_youtube
-                        push_youtube(
-                            result["insights"],
-                            result["url"],
-                            result.get("tasks"),
-                            sections=result.get("sections", {})
-                        )
+                        # ── ROUTE NOTION PUSH by mode ─────────────────────
+                        if used_mode == "study":
+                            from push_to_notion import push_study_notes
+                            push_study_notes(result["insights"], result["url"])
+                        elif used_mode == "work":
+                            from push_to_notion import push_work_brief
+                            push_work_brief(result["insights"], result["url"])
+                        else:
+                            from push_to_notion import push_youtube
+                            push_youtube(
+                                result["insights"],
+                                result["url"],
+                                result.get("tasks"),
+                                sections=result.get("sections", {})
+                            )
+
                         status.update(label="✅ Pushed to Notion!", state="complete")
                         title = result["insights"].title if result.get("insights") else "YouTube Video"
                         save_to_history("youtube", title, result)
