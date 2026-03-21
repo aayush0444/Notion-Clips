@@ -7,12 +7,13 @@ import json
 import os
 import secrets
 from typing import Dict, Optional
+from urllib.parse import quote
 
 import requests
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from backend.supabase_client import get_session, save_session
 
@@ -24,19 +25,12 @@ NOTION_REDIRECT_URI  = os.getenv("NOTION_REDIRECT_URI")
 NOTION_OAUTH_URL     = "https://api.notion.com/v1/oauth/authorize"
 NOTION_TOKEN_URL     = "https://api.notion.com/v1/oauth/token"
 
-# ── NOTE: Notion OAuth does NOT support a scope parameter in the URL. ─────────
-# Permissions are controlled entirely by the integration capabilities
-# set in notion.so/profile/integrations. Passing scope= causes Notion
-# to reject the request with "Missing or invalid redirect_uri".
-
 router = APIRouter(prefix="/auth/notion", tags=["notion_oauth"])
 
 
 def _require_oauth_env() -> None:
-    """Ensure all required OAuth environment variables are present."""
     missing = [
-        var
-        for var in ["NOTION_CLIENT_ID", "NOTION_CLIENT_SECRET", "NOTION_REDIRECT_URI"]
+        var for var in ["NOTION_CLIENT_ID", "NOTION_CLIENT_SECRET", "NOTION_REDIRECT_URI"]
         if not os.getenv(var)
     ]
     if missing:
@@ -47,48 +41,34 @@ def _require_oauth_env() -> None:
 
 
 def _encode_state(session_id: str, notion_page_id: Optional[str]) -> str:
-    """Encode session information into a URL-safe state string."""
     payload = {
         "session_id":     session_id,
         "notion_page_id": notion_page_id,
         "nonce":          secrets.token_hex(8),
     }
-    encoded = base64.urlsafe_b64encode(
+    return base64.urlsafe_b64encode(
         json.dumps(payload).encode("utf-8")
     ).decode("utf-8")
-    return encoded
 
 
 def _decode_state(state: str) -> Dict[str, Optional[str]]:
-    """Decode a state string back into its payload."""
     try:
-        decoded = base64.urlsafe_b64decode(
-            state.encode("utf-8")
-        ).decode("utf-8")
+        decoded = base64.urlsafe_b64decode(state.encode("utf-8")).decode("utf-8")
         data = json.loads(decoded)
         if "session_id" not in data:
             raise ValueError("session_id missing from state payload")
         return data
     except Exception as exc:
-        raise HTTPException(
-            status_code=400, detail="Invalid state parameter"
-        ) from exc
-
-
-class AuthStartResponse(BaseModel):
-    """Response containing the URL to redirect users to Notion consent."""
-    auth_url: str
+        raise HTTPException(status_code=400, detail="Invalid state parameter") from exc
 
 
 class AuthCallbackResponse(BaseModel):
-    """Response after successfully exchanging a code for a token."""
     status:         str
     session_id:     str
     workspace_name: Optional[str] = None
 
 
 class AuthStatusResponse(BaseModel):
-    """OAuth status payload."""
     session_id:     str
     has_token:      bool
     notion_page_id: Optional[str] = None
@@ -96,12 +76,8 @@ class AuthStatusResponse(BaseModel):
 
 def _auth_params(
     session_id: str = Query(..., description="Client-generated session identifier"),
-    notion_page_id: Optional[str] = Query(
-        default=None,
-        description="Optional Notion page ID to persist alongside token.",
-    ),
+    notion_page_id: Optional[str] = Query(default=None),
 ) -> Dict[str, Optional[str]]:
-    """Dependency for extracting auth query params."""
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
     return {"session_id": session_id, "notion_page_id": notion_page_id}
@@ -111,22 +87,21 @@ def _auth_params(
 def start_auth(
     params: Dict[str, Optional[str]] = Depends(_auth_params),
 ) -> RedirectResponse:
-    """Redirect the requester to the Notion OAuth authorization URL.
-
-    Notion does NOT accept a scope parameter — permissions are configured
-    in the integration settings on notion.so. Only client_id, response_type,
-    owner, redirect_uri, and state are sent.
+    """Redirect browser to Notion OAuth consent page.
+    
+    redirect_uri is URL-encoded as required by Notion's OAuth spec.
+    No scope parameter — Notion permissions are set in integration settings.
     """
     _require_oauth_env()
     state = _encode_state(params["session_id"], params["notion_page_id"])
+    encoded_redirect = quote(NOTION_REDIRECT_URI, safe="")
 
-    # Build the URL without scope — Notion rejects requests that include it
     auth_url = (
         f"{NOTION_OAUTH_URL}"
         f"?client_id={NOTION_CLIENT_ID}"
         f"&response_type=code"
         f"&owner=user"
-        f"&redirect_uri={NOTION_REDIRECT_URI}"
+        f"&redirect_uri={encoded_redirect}"
         f"&state={state}"
     )
     return RedirectResponse(url=auth_url)
@@ -137,7 +112,7 @@ def oauth_callback(
     code:  str = Query(...),
     state: str = Query(...),
 ) -> AuthCallbackResponse:
-    """Handle OAuth callback, exchange code for token, and store session."""
+    """Handle Notion OAuth callback, exchange code for token, store session."""
     _require_oauth_env()
     state_payload  = _decode_state(state)
     session_id     = state_payload["session_id"]
@@ -148,11 +123,12 @@ def oauth_callback(
         "code":         code,
         "redirect_uri": NOTION_REDIRECT_URI,
     }
+    auth_header = base64.b64encode(
+        f"{NOTION_CLIENT_ID}:{NOTION_CLIENT_SECRET}".encode()
+    ).decode()
     headers = {
         "Content-Type":  "application/json",
-        "Authorization": "Basic " + base64.b64encode(
-            f"{NOTION_CLIENT_ID}:{NOTION_CLIENT_SECRET}".encode()
-        ).decode(),
+        "Authorization": f"Basic {auth_header}",
     }
 
     response = requests.post(
@@ -170,10 +146,7 @@ def oauth_callback(
     data         = response.json()
     access_token = data.get("access_token")
     if not access_token:
-        raise HTTPException(
-            status_code=502,
-            detail="Notion response missing access_token.",
-        )
+        raise HTTPException(status_code=502, detail="Notion response missing access_token.")
 
     workspace_name = data.get("workspace_name")
     save_session(session_id, access_token, notion_page_id or "")
