@@ -126,7 +126,7 @@ def oauth_callback(
     token_payload = {
         "grant_type":   "authorization_code",
         "code":         code,
-        "redirect_uri": NOTION_REDIRECT_URI,
+        
     }
     auth_header = base64.b64encode(
         f"{NOTION_CLIENT_ID}:{NOTION_CLIENT_SECRET}".encode()
