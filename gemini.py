@@ -1,9 +1,10 @@
 import os
+from typing import Union
 import streamlit as st
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
-from models import ActionItemList, MeetingSummary, VideoInsights
+from models import ActionItemList, MeetingSummary, VideoInsights, StudyNotes, WorkBrief
 
 load_dotenv()
 
@@ -84,119 +85,112 @@ def extract_meeting_summary(transcript: str) -> MeetingSummary:
     return structured_llm.invoke(prompt)
 
 
-# ─── YouTube Mode — Mode-aware extraction ────────────────────────────────────
+# ─── YouTube Mode — Mode-aware prompts ───────────────────────────────────────
 #
-# mode can be: "study" | "work" | "quick"
-# sections is a dict of which sections to include in the prompt
-#
-# Mode changes the PROMPT sent to AI — different tone, depth, length
-# Sections changes WHAT is extracted — user controls output fields
+# Each mode has a completely different persona, output expectation, and depth.
+# The prompts are written to match the Pydantic model fields exactly.
+# Study → StudyNotes, Work → WorkBrief, Quick → VideoInsights
 
-MODE_PROMPTS = {
-    "study": {
-        "persona": """You are a subject-matter expert and rigorous note-taker.
-Your job is to extract knowledge from this video as if you are preparing
-revision notes for a student who will be examined on this content.
+STUDY_PROMPT = """
+You are a senior university lecturer and expert note-taker who has just watched this video.
+Your job is to produce study notes that are ACTUALLY USEFUL for a student who will be
+EXAMINED on this material. Not notes they will passively read — notes they will study from.
 
-Rules you must follow:
-- Preserve ALL technical terms, named concepts, formulas, and proper nouns exactly as mentioned
-- If the speaker defines something, capture that definition precisely
-- If numbers, dates, measurements, or statistics are mentioned, include them
-- Identify cause-effect relationships and explain them clearly
-- Do NOT simplify technical content — the student needs accuracy, not dumbing down
-- If the video builds on prior knowledge, mention what prerequisite concepts are assumed""",
+STRICT RULES:
+1. core_concept: Write ONE sentence that captures the single most important idea.
+   This is what the student writes on their hand before an exam. Be precise.
+   Bad: "This video covers diffraction." Good: "Single slit diffraction produces
+   a central maximum at θ=0 and dark fringes where a·sinθ = nλ, with n = 1,2,3..."
 
-        "summary": """Write a 4-5 sentence technical summary that captures:
-(1) what the video is specifically about,
-(2) the core mechanism, argument, or process explained,
-(3) the key conclusion or result.
-Do not be vague. Be precise. Include technical terms.""",
+2. formula_sheet: For EVERY formula, equation, or mathematical relationship in the video,
+   write it out AND define EVERY variable in plain English.
+   Format: "formula — variable = meaning, variable = meaning"
+   If there are no formulas, return an empty list — do NOT invent formulas.
 
-        "takeaways": """Extract up to 10 key learning points.
-Each point must be a complete, standalone piece of knowledge —
-not a vague observation like 'diffraction is important' but
-a precise statement like 'Bragg diffraction occurs when nλ = 2d·sinθ,
-where d is interplanar spacing and θ is the glancing angle.'
-If equations, conditions, or constraints were mentioned, include them.""",
+3. key_facts: These must be specific enough to appear word-for-word on an exam.
+   Include: numbers, ratios, conditions, exceptions, limits mentioned in the video.
+   Bad: "The central maximum is the brightest." 
+   Good: "The central maximum has twice the angular width of all secondary maxima,
+   with half-width θ ≈ λ/a for small angles."
 
-        "topics": """List up to 6 topics or subtopics covered in order of appearance.
-Label them as a structured outline — these should reflect the actual
-intellectual structure of the video, not generic categories.""",
+4. common_mistakes: What do students actually get wrong on exams about THIS topic?
+   Include mistakes the speaker warns against AND well-known confusions in this subject.
+   Be specific — not generic study advice.
+   Bad: "Read the question carefully."
+   Good: "Applying d·sinθ = nλ (double slit MAXIMA) to single slit — the same letters
+   appear but single slit minima use a·sinθ = nλ."
 
-        "action_items": """List up to 5 specific follow-up actions for a student:
-- papers or textbooks to read
-- problems to solve or experiments to try
-- related concepts to look up
-- things to memorise or derive yourself
-Be specific — 'Read Chapter 3 of Kittel' is better than 'Read more about diffraction'.""",
-    },
+5. self_test: Write questions a professor would put on an exam from THIS video's content.
+   Include: at least one definition, one calculation/derivation, one conceptual.
+   Write ONLY the question — no answers. The student must attempt them first.
 
-    "work": {
-        "persona": """You are a senior professional who watched this video so your colleagues don't have to.
-Your job is to extract everything someone needs to apply this content at work —
-whether that's a developer learning a new tool, a designer watching a talk,
-a founder understanding a market, or a team lead evaluating a technology.
+6. prerequisites: Name concepts precisely. "Huygens' Principle" not "wave theory."
+   Only include what is genuinely needed to understand this specific video.
 
-Rules you must follow:
-- Focus on what is APPLICABLE, not what is interesting
-- Distinguish between what is opinion vs what is evidence-based
-- If tools, frameworks, libraries, companies, or methods are mentioned by name — capture them
-- If the speaker makes a recommendation, capture it with their reasoning
-- Skip historical context and filler — only include what changes how someone works""",
+7. further_reading: Minimum format is "Chapter N, Book Title by Author."
+   Use standard university-level textbooks for this subject.
 
-        "summary": """Write a 3-sentence brief as if you are sending a Slack message to your team:
-(1) what this video covers and why it's relevant,
-(2) the single most important thing to know,
-(3) whether the team should watch it or just read these notes.""",
+VIDEO TRANSCRIPT:
+{transcript}
+"""
 
-        "takeaways": """Extract up to 7 insights that are directly applicable at work.
-Each insight should answer: 'So what? What do I do differently because of this?'
-Include specific tools, metrics, methods, or frameworks mentioned.
-If the speaker compared options or gave a recommendation, include it.""",
+WORK_PROMPT = """
+You are a senior professional who watched this video so your team doesn't have to.
+Your job is to extract everything needed to decide: should the team watch this?
+And if they do, what do they actually DO differently afterward?
 
-        "topics": """List up to 5 topics covered, framed as professional categories
-e.g. 'Performance optimisation', 'Team structure', 'Cost tradeoffs' —
-not generic labels. These should help a colleague decide which section is relevant to them.""",
+STRICT RULES:
+1. one_liner: One sentence. Slack-ready. "This covers X and is relevant if your team does Y."
+   Someone must be able to forward this to their manager and have it make sense.
 
-        "action_items": """List up to 6 concrete next steps a professional should take after watching.
-These must be specific and immediately actionable:
-- tools to try or install
-- processes to change
-- decisions to make
-- things to research further with specific search terms
-- people or companies to look up
-Vague actions like 'think about this' are not allowed.""",
-    },
+2. watch_or_skip: Begin with exactly "Watch" or "Skip" then a colon then one reason.
+   If Watch: reference a specific section, timestamp, or use case.
+   If Skip: explain what the viewer already knows that makes this redundant.
 
-    "quick": {
-        "persona": """You are a brilliant friend who just watched this video and is explaining it to someone
+3. key_points: Each point must answer "So what? What changes about how we work?"
+   Include the speaker's actual recommendations, benchmarks, and named comparisons.
+   If they said "X is 4x faster than Y at Z workloads" — write that exactly.
+   NOT: "The speaker discussed performance." YES: "Redis showed 4x lower latency
+   than Postgres for session reads in the benchmark at 10k concurrent users."
+
+4. tools_mentioned: Exact names only. No descriptions. No sentences.
+   "Redis", "LangChain", "Railway". These are searchable tags.
+
+5. decisions_to_make: Concrete decisions tied to this video's content.
+   Format: "Evaluate whether to [do X] given [evidence from video]."
+   These should be things a team lead could put in a Notion task today.
+
+6. next_actions: Enough detail to execute right now.
+   Include commands, URLs, search terms, specific chapter/doc references.
+   "brew install redis && redis-server" not "try Redis."
+
+VIDEO TRANSCRIPT:
+{transcript}
+"""
+
+QUICK_PROMPT = """
+You are a brilliant friend who just watched this video and is explaining it to someone
 who has 60 seconds and zero patience. You know everything but speak simply.
-No jargon unless absolutely necessary. No filler. No 'in conclusion'.
+No jargon unless absolutely necessary. No filler. No "in conclusion."
 Write like a human, not a robot. The person reading this should feel like
-they can confidently talk about this video at dinner tonight.""",
+they can confidently talk about this video at dinner tonight.
 
-        "summary": """Write 2-3 sentences max. Cover: what it's about, the most surprising or interesting thing,
-and the one thing worth remembering. Make it conversational and engaging — not a Wikipedia intro.""",
+Provide:
+- A short conversational title
+- 2-3 sentence summary: what it's about, the most surprising thing, the one thing to remember
+- 3-5 genuinely interesting takeaways (not obvious filler)
+- 2-3 topic labels (plain language, not academic categories)
+- 0-2 action items — only if the video genuinely had something worth doing
 
-        "takeaways": """Give exactly 3-5 things worth knowing.
-Make each one genuinely interesting or surprising — not obvious filler.
-These should be the things that make someone go 'oh I didn't know that'.
-Write each as a punchy, complete thought.""",
-
-        "topics": """List 2-3 topics only. Keep labels short and plain — what a normal person would say,
-not an academic category.""",
-
-        "action_items": """Only include this if the video genuinely had something worth doing.
-1-2 actions max. If there's nothing actionable, return an empty list —
-do NOT make up generic actions just to fill the field.""",
-    },
-}
+VIDEO TRANSCRIPT:
+{transcript}
+"""
 
 DEFAULT_SECTIONS = {
-    "summary":      True,
+    "summary":       True,
     "key_takeaways": True,
-    "topics":       True,
-    "action_items": True,
+    "topics":        True,
+    "action_items":  True,
 }
 
 
@@ -204,60 +198,76 @@ def extract_video_insights(
     transcript: str,
     mode: str = "study",
     sections: dict = None
-) -> VideoInsights:
+) -> Union[StudyNotes, WorkBrief, VideoInsights]:
     """
     Extract insights from a YouTube transcript.
 
     Args:
         transcript: raw transcript text
-        mode: "study" | "work" | "quick" — changes AI tone and depth
-        sections: dict of which fields to extract
-                  e.g. {"summary": True, "key_takeaways": True, "topics": False, "action_items": False}
+        mode: "study" | "work" | "quick" — determines output Pydantic model and AI prompt
+        sections: only used for Quick mode (legacy sections dict) — ignored for Study/Work
+
+    Returns:
+        StudyNotes  if mode == "study"
+        WorkBrief   if mode == "work"
+        VideoInsights if mode == "quick"
     """
     if sections is None:
         sections = DEFAULT_SECTIONS.copy()
 
-    m = MODE_PROMPTS.get(mode, MODE_PROMPTS["study"])
+    if mode == "study":
+        structured_llm = get_model().with_structured_output(StudyNotes)
+        prompt = STUDY_PROMPT.format(transcript=transcript)
+        return structured_llm.invoke(prompt)
 
-    # Build the instruction list based on which sections are enabled
-    instructions = [f"- A short title describing what the video is about (always required)"]
+    elif mode == "work":
+        structured_llm = get_model().with_structured_output(WorkBrief)
+        prompt = WORK_PROMPT.format(transcript=transcript)
+        return structured_llm.invoke(prompt)
 
-    if sections.get("summary", True):
-        instructions.append(f"- Summary: {m['summary']}")
     else:
-        instructions.append("- summary: return an empty string ''")
+        # Quick mode — uses VideoInsights, same as before
+        # sections dict controls which fields the AI is asked to fill
+        structured_llm = get_model().with_structured_output(VideoInsights)
 
-    if sections.get("key_takeaways", True):
-        instructions.append(f"- Key takeaways: {m['takeaways']}")
-    else:
-        instructions.append("- key_takeaways: return an empty list []")
+        instructions = ["- A short title describing what the video is about (always required)"]
 
-    if sections.get("topics", True):
-        instructions.append(f"- Topics covered: {m['topics']}")
-    else:
-        instructions.append("- topics_covered: return an empty list []")
+        if sections.get("summary", True):
+            instructions.append("- Summary: 2-3 sentences max. What it's about, "
+                                 "the most surprising thing, the one thing worth remembering. "
+                                 "Conversational tone.")
+        else:
+            instructions.append("- summary: return empty string ''")
 
-    if sections.get("action_items", True):
-        instructions.append(f"- Action items: {m['action_items']}")
-    else:
-        instructions.append("- action_items: return an empty list []")
+        if sections.get("key_takeaways", True):
+            instructions.append("- Key takeaways: exactly 3-5 genuinely interesting points. "
+                                 "Not obvious filler. Punchy, complete thoughts.")
+        else:
+            instructions.append("- key_takeaways: return empty list []")
 
-    instructions_text = "\n    ".join(instructions)
+        if sections.get("topics", True):
+            instructions.append("- Topics covered: 2-3 plain-language topic labels only.")
+        else:
+            instructions.append("- topics_covered: return empty list []")
 
-    prompt = f"""
-    {m['persona']}
+        if sections.get("action_items", True):
+            instructions.append("- Action items: 0-2 only if genuinely actionable. "
+                                 "If nothing is worth doing, return empty list.")
+        else:
+            instructions.append("- action_items: return empty list []")
 
-    Someone doesn't have time to watch this video — give them what they need.
+        instructions_text = "\n    ".join(instructions)
 
-    Provide:
-    {instructions_text}
+        prompt = f"""
+{QUICK_PROMPT.format(transcript="")}
 
-    VIDEO TRANSCRIPT:
-    {transcript}
-    """
+Provide:
+{instructions_text}
 
-    structured_llm = get_model().with_structured_output(VideoInsights)
-    return structured_llm.invoke(prompt)
+VIDEO TRANSCRIPT:
+{transcript}
+"""
+        return structured_llm.invoke(prompt)
 
 
 # ─── Utilities ────────────────────────────────────────────────────────────────
