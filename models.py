@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional
 
 
 # ─── Shared ───────────────────────────────────────────────────────────────────
@@ -18,164 +18,181 @@ class ActionItemList(BaseModel):
 
 class MeetingSummary(BaseModel):
     title: str                = Field(description="Short meeting title, max 8 words")
-    summary: str              = Field(description="3-4 sentence executive summary of what was discussed")
-    key_decisions: List[str]  = Field(description="Key decisions made, up to 5 points")
-    next_steps: List[str]     = Field(description="Next steps agreed upon, up to 5 points")
+    summary: str              = Field(description="3-4 sentence executive summary")
+    key_decisions: List[str]  = Field(description="Key decisions made")
+    next_steps: List[str]     = Field(description="Next steps agreed upon")
 
 
-# ─── YouTube Quick Mode ───────────────────────────────────────────────────────
-# Used only for Quick mode — kept exactly as-is.
+# ─── YouTube Quick Mode (unchanged) ──────────────────────────────────────────
 
 class VideoInsights(BaseModel):
     title: str                = Field(description="Short title describing what this video is about")
-    summary: str              = Field(description="3-4 sentence summary of the video content")
-    key_takeaways: List[str]  = Field(description="Most important points from the video, up to 7")
-    topics_covered: List[str] = Field(description="Main topics or sections covered, up to 5")
-    action_items: List[str]   = Field(description="Things the viewer should do or look into after watching, up to 5")
+    summary: str              = Field(description="2-3 sentence summary — conversational, not academic")
+    key_takeaways: List[str]  = Field(description="The most interesting or surprising things worth knowing. Scale count to video length — do not cap artificially.")
+    topics_covered: List[str] = Field(description="Main topics covered in plain language")
+    action_items: List[str]   = Field(description="Things worth doing after watching. Empty list if nothing actionable.")
 
 
 # ─── YouTube Study Mode ───────────────────────────────────────────────────────
-# For lectures, tutorials, courses — anything a student would watch.
-# Every field is designed around active recall and exam preparation.
 
 class StudyNotes(BaseModel):
     title: str = Field(
-        description="Short title describing what this video teaches"
+        description="Precise title of what this video teaches"
     )
     core_concept: str = Field(
         description=(
-            "ONE sentence. The single most important idea to memorise from this video. "
-            "Not a summary — the distilled essence. Must be precise and complete. "
-            "Example: 'Single slit diffraction produces a central bright maximum flanked "
-            "by dark fringes at positions given by a·sinθ = nλ, where a is slit width "
-            "and n is the order of the minimum.'"
+            "ONE sentence. The single most important idea to memorise from this entire video. "
+            "Not a summary — the distilled essence. Must be precise and technical if the content is technical. "
+            "Example: 'Single slit diffraction produces intensity minima at positions where a·sinθ = nλ, "
+            "where a is slit width, n is an integer, and λ is wavelength.'"
         )
     )
     formula_sheet: List[str] = Field(
         description=(
-            "Each entry is a formula followed by a plain-English definition of EVERY variable. "
-            "Format: 'formula — variable1 = meaning, variable2 = meaning, ...'. "
-            "Example: 'a·sinθ = nλ — a = slit width, θ = angle of minima from centre, "
-            "n = integer order (1, 2, 3...), λ = wavelength of light'. "
-            "If the video contains no formulas or equations, return an empty list."
+            "Every mathematical formula, equation, or quantitative relationship mentioned in the video. "
+            "Format each entry as: 'formula — plain English definition of EVERY variable'. "
+            "Example: 'a·sinθ = nλ — a is slit width in metres, θ is the angle of the minima from centre, "
+            "n is any non-zero integer, λ is the wavelength of light'. "
+            "If no formulas in the video, return empty list. Do NOT invent formulas."
         )
     )
     key_facts: List[str] = Field(
         description=(
-            "Precise, complete, standalone technical statements. "
-            "Each fact must be specific enough to appear on an exam. "
-            "Must include numbers, conditions, limits, or relationships where the video mentions them. "
-            "NOT vague: 'diffraction is important'. "
-            "YES: 'The central maximum is twice as wide as all other maxima. "
-            "Its half-width is θ = λ/a radians.' Up to 10 facts."
+            "Every specific, precise, standalone technical statement from the video. "
+            "SCALE THIS TO VIDEO LENGTH — a 10-minute video might have 5-8 facts, "
+            "a 30-minute video 12-20 facts, a 60-minute video 20-30 facts, a 2-hour video 30-45 facts. "
+            "Each fact must: contain the actual information (not 'the speaker discusses X'), "
+            "include numbers/conditions/limits where mentioned, be complete as a standalone statement. "
+            "Include approximate timestamp where identifiable, formatted as (≈MM:SS). "
+            "Example: 'The first minimum in single slit diffraction occurs at θ = λ/a (≈08:30)'. "
+            "ONLY include what is explicitly stated in the transcript. Never infer or add external knowledge."
         )
     )
     common_mistakes: List[str] = Field(
         description=(
-            "Things students typically get wrong about THIS specific topic. "
-            "Draw from: (1) mistakes the speaker explicitly warns against, "
-            "(2) common confusions that arise from the content covered. "
-            "Be specific to the subject — not generic study advice like 'read carefully'. "
-            "Example: 'Applying the double-slit maxima formula (d·sinθ = nλ) to single slit — "
-            "single slit uses the same letters but the condition gives MINIMA, not maxima.' "
-            "Up to 5 mistakes."
+            "Errors, misconceptions, or confusions that students or practitioners commonly make "
+            "about the topics covered in this video, as explicitly mentioned by the speaker OR "
+            "as naturally arising from the specific content taught. "
+            "Be specific to THIS content, not generic study advice. "
+            "Example: 'Confusing the minima condition (a·sinθ = nλ) with the maxima condition — "
+            "the formula gives DARK fringes, not bright ones'. "
+            "If the video contains no warnings or difficult-to-distinguish concepts, return empty list."
         )
     )
     self_test: List[str] = Field(
         description=(
-            "3 to 5 exam-style questions generated from the video content. "
-            "Must be answerable using only what was covered in the video. "
-            "Mix types: at least one definition, one calculation or derivation, one conceptual. "
-            "Write only the question — no answers in this field. "
-            "Example questions: "
-            "'State the condition for destructive interference in single slit diffraction.', "
-            "'A slit of width 0.1mm is illuminated by 600nm light. Find the angle of the first minimum.', "
-            "'Why does the central maximum have twice the angular width of secondary maxima?'"
+            "Exam-style questions generated from the video content. "
+            "SCALE TO VIDEO LENGTH — 3 questions for short videos, up to 10-12 for 2-hour lectures. "
+            "Every question must be answerable solely from the video content. "
+            "Mix question types: definition ('What is...'), calculation ('Calculate the angle where...'), "
+            "conceptual ('Explain why intensity decreases...'), application ('A slit of width 0.1mm...'). "
+            "Write just the question — no answers in this field."
         )
     )
     prerequisites: List[str] = Field(
         description=(
-            "Concepts you must understand before this video makes sense. "
-            "Be specific — name the concept precisely. "
-            "'Huygens' Principle' not 'wave theory'. "
-            "'Superposition of waves' not 'wave basics'. Up to 5 prerequisites."
+            "Specific concepts the viewer must already understand for this video to make sense. "
+            "Be precise: 'Huygens' Principle — every point on a wavefront acts as a source of secondary wavelets' "
+            "not just 'wave theory'. List only genuine prerequisites, not general background."
         )
     )
     further_reading: List[str] = Field(
         description=(
-            "Specific resources for deeper study. "
-            "Minimum format: 'Chapter/Section number, Book Title by Author'. "
+            "Specific resources for going deeper. Minimum: chapter number + book title + author. "
             "If the speaker recommends something specific, use that exactly. "
-            "If not, recommend the standard textbook for this subject at university level. "
-            "Example: 'Chapter 36, University Physics by Young & Freedman', "
-            "'Chapter 10, Optics by Eugene Hecht'. Up to 4 resources."
+            "Example: 'Chapter 10, Introduction to Electrodynamics by Griffiths — covers wave optics in full'. "
+            "Do not suggest vague resources like 'search online for more'. "
+            "If no specific resources were mentioned and none are naturally implied, return empty list."
         )
     )
 
 
 # ─── YouTube Work Mode ────────────────────────────────────────────────────────
-# For tech talks, industry videos, conference presentations.
-# Every field is designed around professional applicability.
 
 class WorkBrief(BaseModel):
     title: str = Field(
-        description="Short title describing what this video covers professionally"
+        description="Short, precise title of what this video covers professionally"
     )
     one_liner: str = Field(
         description=(
-            "One sentence. Slack-message ready. "
-            "Format: 'This video covers [topic] and is relevant if your team is [context].' "
-            "Example: 'This video covers Redis caching patterns and is relevant if your team "
-            "is dealing with API rate limits or session storage at scale.'"
+            "One sentence. Slack-message ready. What this video covers and why a professional would care. "
+            "Example: 'Deep dive into Redis caching strategies with benchmarks comparing write-through "
+            "vs write-behind — relevant if your team is scaling read-heavy APIs.'"
         )
     )
     watch_or_skip: str = Field(
         description=(
-            "Start with exactly 'Watch' or 'Skip', then a colon, then one sentence reason. "
-            "If recommending Watch: reference a specific timestamp or section if possible. "
-            "Example Watch: 'Watch: the rate limiting implementation (14:00–22:00) directly "
-            "applies to any team running a public API.' "
-            "Example Skip: 'Skip: covers fundamentals your team likely knows — "
-            "no new tools or patterns introduced beyond what is in the official docs.'"
+            "Start with exactly 'Watch' or 'Skip', then a colon, then one sentence justification. "
+            "Watch if: new tools, concrete benchmarks, non-obvious insights, directly applicable techniques. "
+            "Skip if: content is introductory for anyone already working in this area, "
+            "purely theoretical, or covers well-known ground. "
+            "Include timestamp range if only part of the video is worth watching. "
+            "Example: 'Watch: the rate limiting implementation at 18:00-34:00 is production-ready "
+            "and directly applicable to any team running a public API.' "
+            "Example: 'Skip: covers REST API basics that any working developer already knows.'"
         )
     )
     key_points: List[str] = Field(
         description=(
-            "What changes how you or your team works — applicability first, information second. "
-            "Each point must answer the implicit question: 'So what? What do I do differently?' "
-            "Include specific metrics, comparisons, or recommendations the speaker makes. "
-            "Example: 'Redis outperforms Memcached on persistence and Pub/Sub, "
-            "but Memcached is faster for simple key-value at very high throughput — "
-            "the speaker recommends Redis as the default unless you are above 1M req/min.' "
-            "NOT: 'Redis is a caching solution.' Up to 7 points."
+            "Insights that change how you or your team works. APPLICABILITY FIRST. "
+            "Not what was said — what it means for how you build, decide, or operate. "
+            "SCALE TO VIDEO LENGTH — 5 points for a 15-min talk, up to 20 for a 2-hour deep dive. "
+            "Include specific numbers, benchmarks, or comparisons where mentioned. "
+            "Example: 'Redis outperforms Memcached by 3x on persistence-heavy workloads but "
+            "Memcached is faster for simple key-value reads under 100ms latency requirements.' "
+            "ONLY include what is explicitly stated. Never add external knowledge."
         )
     )
     tools_mentioned: List[str] = Field(
         description=(
-            "Every named tool, library, framework, platform, SaaS product, or company mentioned. "
-            "Exact names only — no descriptions in this field, just the name. "
-            "Examples: 'Redis', 'LangChain', 'Supabase', 'Vercel', 'Railway', 'Pinecone'. "
-            "These become searchable reference tags."
+            "Every named tool, library, framework, platform, company, or service mentioned. "
+            "Exact names only — no descriptions in this field. "
+            "Example: ['Redis', 'Memcached', 'LangChain', 'Supabase', 'Vercel', 'Cloudflare Workers']"
         )
     )
     decisions_to_make: List[str] = Field(
         description=(
-            "Specific decisions the viewer's team should consider or evaluate after watching. "
-            "Must be concrete and tied to the video content — not generic. "
-            "Format: 'Evaluate whether to [action] given [context from video].' "
-            "Example: 'Evaluate whether to add Redis as a caching layer before the next "
-            "backend release — the video shows a 4x latency reduction on read-heavy endpoints.' "
-            "NOT: 'Consider caching strategies.' Up to 5 decisions."
+            "Specific decisions the viewer's team should now consider, prompted by this video. "
+            "Must be concrete and team-specific, not generic. "
+            "Example: 'Evaluate whether adding Redis as a caching layer before the next backend "
+            "release would reduce database load below the 70% threshold mentioned'. "
+            "NOT: 'Consider caching strategies for your application'. "
+            "Only include if a genuine decision is implied by the content."
         )
     )
     next_actions: List[str] = Field(
         description=(
-            "Specific, doable-today actions. Include enough detail to execute immediately. "
-            "Name the tool, write the command, state the URL, specify the search term. "
-            "Examples: "
-            "'Install Redis locally: brew install redis && redis-server', "
-            "'Read the LangChain caching docs: python.langchain.com/docs/modules/model_io/llms/llm_caching', "
-            "'Search: redis vs memcached 2024 benchmark to find recent performance comparisons'. "
-            "NOT: 'Learn more about caching.' Up to 6 actions."
+            "Specific, executable actions. Name the tool, write the command, state the step. "
+            "Must be doable in the next few days, not vague goals. "
+            "Example: 'Install Redis locally: brew install redis && redis-server'. "
+            "Example: 'Read the LangChain caching docs — python.langchain.com/docs/modules/model_io/llms/llm_caching'. "
+            "NOT: 'Learn more about caching'. NOT: 'Research this topic further'. "
+            "If nothing is genuinely actionable from this video, return empty list."
         )
+    )
+
+
+# ─── Internal — Chunked Processing ───────────────────────────────────────────
+# Used internally by gemini.py for long video processing.
+# Not exposed to the rest of the app.
+
+class _ChunkExtract(BaseModel):
+    """Raw extraction from one chunk of a long transcript."""
+    facts: List[str] = Field(
+        description="Specific technical statements, definitions, numbers, conditions from this section"
+    )
+    formulas: List[str] = Field(
+        description="Mathematical formulas or equations with variable definitions. Empty list if none."
+    )
+    mistakes: List[str] = Field(
+        description="Errors or misconceptions explicitly mentioned. Empty list if none."
+    )
+    potential_questions: List[str] = Field(
+        description="Things from this section that could be exam or interview questions"
+    )
+    tools: List[str] = Field(
+        description="Named tools, libraries, frameworks mentioned. Empty list if none or not applicable."
+    )
+    key_insights: List[str] = Field(
+        description="For work mode: insights that change how a professional works"
     )

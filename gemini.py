@@ -1,16 +1,22 @@
 import os
-from typing import Union
+import re
 import streamlit as st
 from dotenv import load_dotenv
+from typing import Union, List
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
-from models import ActionItemList, MeetingSummary, VideoInsights, StudyNotes, WorkBrief
+from models import (
+    ActionItemList, MeetingSummary, VideoInsights,
+    StudyNotes, WorkBrief, _ChunkExtract
+)
 
 load_dotenv()
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_MODEL    = "openai/gpt-4o-mini"
 
+
+# ─── Model Provider ───────────────────────────────────────────────────────────
 
 def get_openrouter_key():
     user_key = os.getenv("OPENROUTER_API_KEY")
@@ -52,222 +58,475 @@ def get_model():
     )
 
 
-# ─── Meeting Mode ─────────────────────────────────────────────────────────────
+# ─── Video Length Scaling ─────────────────────────────────────────────────────
+#
+# This is the core fix for the "2-hour video gets 5 points" problem.
+# Output depth scales with content length. No artificial caps.
+
+def _get_length_profile(word_count: int) -> dict:
+    """
+    Returns expected output depth based on transcript word count.
+    ~130 words/minute of speech, so:
+      2000 words  ≈ 15 min
+      6000 words  ≈ 45 min
+      10000 words ≈ 75 min
+      16000 words ≈ 2 hours
+    """
+    if word_count < 2000:
+        return {
+            "category":      "short",
+            "label":         "short (~15 min)",
+            "key_facts":     "5 to 10",
+            "self_test":     "3 to 4",
+            "key_points":    "4 to 7",
+        }
+    elif word_count < 6000:
+        return {
+            "category":      "medium",
+            "label":         "medium (~45 min)",
+            "key_facts":     "12 to 20",
+            "self_test":     "5 to 7",
+            "key_points":    "8 to 14",
+        }
+    elif word_count < 10000:
+        return {
+            "category":      "long",
+            "label":         "long (~75 min)",
+            "key_facts":     "20 to 32",
+            "self_test":     "7 to 10",
+            "key_points":    "12 to 20",
+        }
+    else:
+        return {
+            "category":      "very_long",
+            "label":         "very long (2h+)",
+            "key_facts":     "30 to 50",
+            "self_test":     "10 to 14",
+            "key_points":    "18 to 28",
+        }
+
+
+CHUNK_SIZE_WORDS = 4000    # words per chunk for long video processing
+CHUNK_OVERLAP    = 200     # overlap between chunks to avoid missing context
+CHUNKING_THRESHOLD = 8000  # word count above which chunking is used
+
+
+# ─── Chunk Processing ─────────────────────────────────────────────────────────
+
+def _split_into_chunks(transcript: str) -> List[str]:
+    """Split a long transcript into overlapping chunks."""
+    words = transcript.split()
+    chunks = []
+    start = 0
+    while start < len(words):
+        end = min(start + CHUNK_SIZE_WORDS, len(words))
+        chunk = " ".join(words[start:end])
+        chunks.append(chunk)
+        if end == len(words):
+            break
+        start = end - CHUNK_OVERLAP  # overlap
+    return chunks
+
+
+def _extract_chunk(chunk_text: str, chunk_label: str, mode: str) -> _ChunkExtract:
+    """Extract raw facts from a single transcript chunk."""
+    llm = get_model().with_structured_output(_ChunkExtract)
+
+    if mode == "study":
+        prompt = f"""
+You are extracting raw content from section "{chunk_label}" of a longer video transcript.
+
+Your ONLY job is to pull out what is explicitly in this section.
+Do NOT add external knowledge. Do NOT infer. Do NOT fill gaps.
+If something is not explicitly stated in this text, do not include it.
+
+Extract:
+- facts: Every specific technical statement, definition, number, condition, limit.
+  Include approximate timestamps like (≈12:30) where identifiable from [MM:SS] markers.
+  Be precise — "a·sinθ = nλ is the condition for destructive interference" not "diffraction is explained".
+- formulas: Every equation or mathematical relationship. Format: "formula — variable definitions"
+- mistakes: Only if the speaker explicitly warns about errors or common misconceptions.
+- potential_questions: Statements in this section that could become exam questions.
+- tools: Leave empty for study content.
+- key_insights: Leave empty for study content.
+
+TRANSCRIPT SECTION:
+{chunk_text}
+"""
+    elif mode == "work":
+        prompt = f"""
+You are extracting raw content from section "{chunk_label}" of a longer professional video transcript.
+
+Do NOT add external knowledge. Do NOT infer. Only what is explicitly stated.
+
+Extract:
+- facts: Leave empty.
+- formulas: Leave empty.
+- mistakes: Anti-patterns or warnings explicitly mentioned.
+- potential_questions: Decisions or open questions raised in this section.
+- tools: Every named tool, library, framework, platform, company mentioned. Exact names only.
+- key_insights: Insights that change how a professional works. Include specific numbers/benchmarks if mentioned.
+
+TRANSCRIPT SECTION:
+{chunk_text}
+"""
+    else:  # quick
+        prompt = f"""
+Extract the most interesting and surprising facts from this transcript section.
+Only include what is explicitly stated. Do not add external knowledge.
+
+- facts: Interesting or surprising statements.
+- formulas: Any equations mentioned.
+- mistakes: Any warnings or corrections.
+- potential_questions: Leave empty.
+- tools: Named tools or technologies mentioned.
+- key_insights: The most noteworthy insights.
+
+TRANSCRIPT SECTION:
+{chunk_text}
+"""
+    return llm.invoke(prompt)
+
+
+def _synthesize_study_notes(
+    chunk_results: List[_ChunkExtract],
+    profile: dict,
+    transcript_opening: str,
+    has_timestamps: bool = False
+) -> StudyNotes:
+    """Synthesize chunk extractions into a final StudyNotes object."""
+
+    all_facts      = [f for c in chunk_results for f in c.facts]
+    all_formulas   = [f for c in chunk_results for f in c.formulas]
+    all_mistakes   = [m for c in chunk_results for m in c.mistakes]
+    all_questions  = [q for c in chunk_results for q in c.potential_questions]
+
+    raw = f"""
+OPENING OF VIDEO (first ~500 words for title/concept context):
+{transcript_opening[:2500]}
+
+ALL EXTRACTED FACTS ({len(all_facts)} items across all sections):
+{chr(10).join(f'• {f}' for f in all_facts)}
+
+ALL FORMULAS ({len(all_formulas)} items):
+{chr(10).join(f'• {f}' for f in all_formulas)}
+
+ALL WARNINGS / COMMON MISTAKES ({len(all_mistakes)} items):
+{chr(10).join(f'• {m}' for m in all_mistakes)}
+
+ALL POTENTIAL QUESTIONS ({len(all_questions)} items):
+{chr(10).join(f'• {q}' for q in all_questions)}
+"""
+
+    llm = get_model().with_structured_output(StudyNotes)
+    prompt = f"""
+You are synthesizing raw extracted data from a {profile['label']} video into structured study notes.
+
+The data was extracted from the video in chunks to ensure nothing was missed.
+Your job: organise it into a coherent, accurate, genuinely useful study resource.
+
+CRITICAL RULES — follow these exactly:
+1. ONLY use information from the extracted data above. Do NOT add external knowledge.
+2. Remove duplicates — if the same fact appears multiple times, keep the most precise version.
+3. Do NOT invent formulas, facts, or questions not present in the extracted data.
+4. core_concept: ONE sentence — the single most important idea from the entire video.
+5. formula_sheet: Include EVERY formula found. Format: "formula — what each variable means in full".
+6. key_facts: For a {profile['label']} video, extract {profile['key_facts']} facts.
+   Each must be a complete, precise, standalone technical statement.
+   {('Include (≈MM:SS) timestamps — e.g. (≈08:30) — where [MM:SS] markers appear next to facts.' if has_timestamps else 'Do NOT add any timestamps — this transcript has no timing data. Invented timestamps destroy user trust.')}
+7. self_test: Generate {profile['self_test']} exam-style questions answerable from the extracted facts.
+   Mix: definition, calculation, conceptual, application. Questions only — no answers.
+8. common_mistakes: Only include mistakes that were explicitly in the extracted data.
+9. prerequisites: Be specific — name the exact concept, not a general field.
+10. further_reading: Only if genuinely implied by the content. Chapter + book + author minimum.
+
+{raw}
+"""
+    return llm.invoke(prompt)
+
+
+def _synthesize_work_brief(
+    chunk_results: List[_ChunkExtract],
+    profile: dict,
+    transcript_opening: str,
+    has_timestamps: bool = False
+) -> WorkBrief:
+    """Synthesize chunk extractions into a final WorkBrief object."""
+
+    all_insights = [i for c in chunk_results for i in c.key_insights]
+    all_tools    = list(set(t for c in chunk_results for t in c.tools))
+    all_decisions = [d for c in chunk_results for d in c.potential_questions]
+    all_mistakes  = [m for c in chunk_results for m in c.mistakes]
+
+    raw = f"""
+OPENING OF VIDEO (for title/context):
+{transcript_opening[:2500]}
+
+ALL KEY INSIGHTS ({len(all_insights)} items):
+{chr(10).join(f'• {i}' for i in all_insights)}
+
+ALL TOOLS MENTIONED:
+{', '.join(all_tools) if all_tools else 'None identified'}
+
+ALL DECISIONS / OPEN QUESTIONS ({len(all_decisions)} items):
+{chr(10).join(f'• {d}' for d in all_decisions)}
+
+ALL WARNINGS / ANTI-PATTERNS ({len(all_mistakes)} items):
+{chr(10).join(f'• {m}' for m in all_mistakes)}
+"""
+
+    llm = get_model().with_structured_output(WorkBrief)
+    prompt = f"""
+You are synthesizing raw extracted data from a {profile['label']} professional video into a work brief.
+
+CRITICAL RULES:
+1. ONLY use information from the extracted data. Do NOT add external knowledge.
+2. watch_or_skip: Make a genuine verdict. "Watch" only if the content has non-obvious, applicable value.
+   If the content covers well-known ground, say "Skip".
+3. key_points: For a {profile['label']} video, provide {profile['key_points']} points.
+   Each must say what it means for how someone works, not just what was said.
+   Include specific numbers or benchmarks where present.
+4. tools_mentioned: Exact names only. No descriptions.
+5. decisions_to_make: Specific, team-relevant decisions. Not generic advice.
+6. next_actions: Doable this week. Specific enough to execute immediately.
+   "Read X at URL" or "Run Y command" — not "learn more about Z".
+
+{raw}
+"""
+    return llm.invoke(prompt)
+
+
+# ─── Single-Pass Extraction ───────────────────────────────────────────────────
+
+def _extract_single_pass_study(
+    transcript: str,
+    profile: dict,
+    has_timestamps: bool = False
+) -> StudyNotes:
+    """Single-pass study extraction for short/medium videos."""
+    llm = get_model().with_structured_output(StudyNotes)
+
+    prompt = f"""
+You are an expert note-taker watching a {profile['label']} video.
+Your job: produce study notes so precise and complete that a student can revise
+from them without watching the video — while also knowing exactly where to go back
+in the video if they need more context.
+
+THIS IS A {profile['label'].upper()} VIDEO. Scale your output accordingly.
+
+ABSOLUTE RULES — violating these makes the output useless:
+1. ONLY include what is explicitly stated in the transcript.
+   Do NOT add external knowledge. Do NOT fill gaps. Do NOT infer.
+   If you are not certain something was said, leave it out.
+2. key_facts: Extract {profile['key_facts']} facts for this length of video.
+   Each fact must be precise, complete, and standalone.
+   {('Include (≈MM:SS) timestamp where a nearby [MM:SS] marker exists in the transcript — e.g. (≈08:30).' if has_timestamps else 'Do NOT add any timestamps — this transcript has no timing data. Inventing them is hallucination.')}
+   "The condition for destructive interference is a·sinθ = nλ (≈08:30)" is good.
+   "The speaker discusses diffraction" is useless — never do this.
+3. formula_sheet: Include EVERY formula mentioned. Define EVERY variable.
+   "a·sinθ = nλ — a is slit width in metres, θ is angle from centre,
+   n is any non-zero integer, λ is wavelength" is correct.
+   Empty list is only acceptable if the video genuinely has no formulas.
+4. self_test: {profile['self_test']} questions. Must be answerable from transcript alone.
+   Mix definition, calculation, conceptual, and application questions.
+5. core_concept: ONE sentence maximum. The single most important idea.
+6. common_mistakes: Only if explicitly discussed. Empty list is fine.
+7. further_reading: Chapter + book + author. Empty list if nothing implied.
+
+VIDEO TRANSCRIPT:
+{transcript}
+"""
+    return llm.invoke(prompt)
+
+
+def _extract_single_pass_work(
+    transcript: str,
+    profile: dict,
+    has_timestamps: bool = False
+) -> WorkBrief:
+    """Single-pass work extraction for short/medium videos."""
+    llm = get_model().with_structured_output(WorkBrief)
+
+    prompt = f"""
+You are a senior professional who just watched this {profile['label']} video
+so your colleagues don't have to. Produce a brief they can read in 2 minutes
+and know exactly whether to watch it and what to do about it.
+
+THIS IS A {profile['label'].upper()} VIDEO. Scale output accordingly.
+
+ABSOLUTE RULES:
+1. ONLY include what is explicitly stated in the transcript.
+   Do NOT add knowledge the video didn't cover. Do NOT fill gaps.
+2. watch_or_skip: Be honest. "Watch" only for genuinely non-obvious,
+   applicable content. If it covers basics that any working professional knows, say "Skip".
+   Include timestamp range if only a section is worth watching.
+3. key_points: {profile['key_points']} points for this video length.
+   Focus on what changes how the viewer works. Include specific numbers and benchmarks.
+4. tools_mentioned: Exact names only — no descriptions in this field.
+5. decisions_to_make: Real decisions implied by the content. Be specific.
+   "Evaluate Redis as caching layer" is good. "Consider caching" is useless.
+6. next_actions: Executable this week. Name the tool, write the command,
+   give the URL. "brew install redis" is good. "Learn more" is useless.
+   Return empty list if nothing is genuinely actionable.
+
+VIDEO TRANSCRIPT:
+{transcript}
+"""
+    return llm.invoke(prompt)
+
+
+def _extract_single_pass_quick(
+    transcript: str,
+    profile: dict,
+    sections: dict
+) -> VideoInsights:
+    """Single-pass quick mode extraction."""
+    llm = get_model().with_structured_output(VideoInsights)
+
+    sections_instruction = []
+    if not sections.get("summary", True):
+        sections_instruction.append("- summary: return empty string ''")
+    if not sections.get("key_takeaways", True):
+        sections_instruction.append("- key_takeaways: return empty list []")
+    if not sections.get("topics", True):
+        sections_instruction.append("- topics_covered: return empty list []")
+    if not sections.get("action_items", True):
+        sections_instruction.append("- action_items: return empty list []")
+
+    disabled_note = ("\nUser disabled these sections — return empty for them:\n" +
+                     "\n".join(sections_instruction)) if sections_instruction else ""
+
+    prompt = f"""
+You are a brilliant, well-informed friend who just watched this {profile['label']} video.
+Explain it to someone who has 2 minutes and zero patience.
+
+THIS IS A {profile['label'].upper()} VIDEO.
+key_takeaways: scale to video length — {profile['key_facts']} items is appropriate.
+Do not cap at 7 if the video is long.
+
+Rules:
+1. Only include what is explicitly in the transcript. No external knowledge.
+2. Conversational tone — not academic, not bullet-pointed corporate speak.
+3. key_takeaways: the things that make someone go "oh I didn't know that."
+   Not obvious filler. Not generic observations.
+4. action_items: only if genuinely actionable. Empty list if nothing to do.
+{disabled_note}
+
+VIDEO TRANSCRIPT:
+{transcript}
+"""
+    return llm.invoke(prompt)
+
+
+# ─── Main Entry Point ─────────────────────────────────────────────────────────
+
+def extract_video_insights(
+    transcript: str,
+    mode: str = "study",
+    sections: dict = None,
+    duration_minutes: float = 0
+) -> Union[StudyNotes, WorkBrief, VideoInsights]:
+    """
+    Extract insights from a YouTube transcript.
+
+    Automatically scales output depth to video length.
+    Uses chunked processing for long videos (>8000 words) to prevent
+    truncation and hallucination.
+
+    Args:
+        transcript:        full transcript text (with [MM:SS] timestamp markers if available)
+        mode:              "study" | "work" | "quick"
+        sections:          dict of which sections to include (used for quick mode only)
+        duration_minutes:  video duration in minutes (for metadata, not used in logic)
+
+    Returns:
+        StudyNotes for mode="study"
+        WorkBrief  for mode="work"
+        VideoInsights for mode="quick"
+    """
+    if sections is None:
+        sections = {
+            "summary": True, "key_takeaways": True,
+            "topics": True, "action_items": True
+        }
+
+    word_count = len(transcript.split())
+    profile    = _get_length_profile(word_count)
+
+    # Detect whether real [MM:SS] timestamp markers are embedded.
+    # These are only present when the scraping method succeeded.
+    # This flag is passed into prompts — if False, AI is explicitly told
+    # NOT to add timestamps, preventing hallucinated (≈12:30) on every fact.
+    has_timestamps = bool(re.search(r'\[\d{2}:\d{2}\]', transcript))
+
+    # Short/medium videos — single pass (fast, sufficient)
+    if word_count <= CHUNKING_THRESHOLD:
+        if mode == "study":
+            return _extract_single_pass_study(transcript, profile, has_timestamps)
+        elif mode == "work":
+            return _extract_single_pass_work(transcript, profile, has_timestamps)
+        else:
+            return _extract_single_pass_quick(transcript, profile, sections)
+
+    # Long videos — chunked extraction then synthesis
+    # This prevents hallucination from transcript compression
+    chunks = _split_into_chunks(transcript)
+    chunk_results = []
+
+    for i, chunk in enumerate(chunks):
+        label = f"Section {i+1} of {len(chunks)}"
+        result = _extract_chunk(chunk, label, mode)
+        chunk_results.append(result)
+
+    # Use first ~500 words as opening context for title generation
+    transcript_opening = " ".join(transcript.split()[:500])
+
+    if mode == "study":
+        return _synthesize_study_notes(chunk_results, profile, transcript_opening, has_timestamps)
+    elif mode == "work":
+        return _synthesize_work_brief(chunk_results, profile, transcript_opening, has_timestamps)
+    else:
+        # For quick mode on long videos, synthesize into VideoInsights
+        all_facts = [f for c in chunk_results for f in c.facts + c.key_insights]
+        synthesized_text = (
+            f"VIDEO OPENING: {transcript_opening}\n\n"
+            f"KEY POINTS FROM ALL SECTIONS:\n" +
+            "\n".join(f"• {f}" for f in all_facts[:60])
+        )
+        return _extract_single_pass_quick(synthesized_text, profile, sections)
+
+
+# ─── Meeting Mode (unchanged) ─────────────────────────────────────────────────
 
 def extract_tasks(transcript: str) -> ActionItemList:
     structured_llm = get_model().with_structured_output(ActionItemList)
     prompt = f"""
-    You are an expert meeting analyst.
-    Extract ALL action items and tasks from this transcript.
-    For each task identify:
-    - The specific task to be done
-    - Who is responsible (use "Team" if unclear)
-    - Due date in YYYY-MM-DD format, or "TBD"
-    - Priority: High (urgent), Medium (important), Low (nice to have)
-    TRANSCRIPT:
-    {transcript}
-    """
+You are an expert meeting analyst.
+Extract ALL action items and tasks from this transcript.
+For each task identify:
+- The specific task to be done
+- Who is responsible (use "Team" if unclear)
+- Due date in YYYY-MM-DD format, or "TBD"
+- Priority: High (urgent), Medium (important), Low (nice to have)
+TRANSCRIPT:
+{transcript}
+"""
     return structured_llm.invoke(prompt)
 
 
 def extract_meeting_summary(transcript: str) -> MeetingSummary:
     structured_llm = get_model().with_structured_output(MeetingSummary)
     prompt = f"""
-    You are an expert meeting analyst.
-    Analyze this meeting transcript and provide:
-    - A concise meeting title (max 8 words)
-    - An executive summary (3-4 sentences: what was discussed and decided)
-    - Key decisions made (up to 5)
-    - Clear next steps agreed upon (up to 5)
-    TRANSCRIPT:
-    {transcript}
-    """
+You are an expert meeting analyst.
+Analyze this meeting transcript and provide:
+- A concise meeting title (max 8 words)
+- An executive summary (3-4 sentences: what was discussed and decided)
+- Key decisions made (up to 5)
+- Clear next steps agreed upon (up to 5)
+TRANSCRIPT:
+{transcript}
+"""
     return structured_llm.invoke(prompt)
-
-
-# ─── YouTube Mode — Mode-aware prompts ───────────────────────────────────────
-#
-# Each mode has a completely different persona, output expectation, and depth.
-# The prompts are written to match the Pydantic model fields exactly.
-# Study → StudyNotes, Work → WorkBrief, Quick → VideoInsights
-
-STUDY_PROMPT = """
-You are a senior university lecturer and expert note-taker who has just watched this video.
-Your job is to produce study notes that are ACTUALLY USEFUL for a student who will be
-EXAMINED on this material. Not notes they will passively read — notes they will study from.
-
-STRICT RULES:
-1. core_concept: Write ONE sentence that captures the single most important idea.
-   This is what the student writes on their hand before an exam. Be precise.
-   Bad: "This video covers diffraction." Good: "Single slit diffraction produces
-   a central maximum at θ=0 and dark fringes where a·sinθ = nλ, with n = 1,2,3..."
-
-2. formula_sheet: For EVERY formula, equation, or mathematical relationship in the video,
-   write it out AND define EVERY variable in plain English.
-   Format: "formula — variable = meaning, variable = meaning"
-   If there are no formulas, return an empty list — do NOT invent formulas.
-
-3. key_facts: These must be specific enough to appear word-for-word on an exam.
-   Include: numbers, ratios, conditions, exceptions, limits mentioned in the video.
-   Bad: "The central maximum is the brightest." 
-   Good: "The central maximum has twice the angular width of all secondary maxima,
-   with half-width θ ≈ λ/a for small angles."
-
-4. common_mistakes: What do students actually get wrong on exams about THIS topic?
-   Include mistakes the speaker warns against AND well-known confusions in this subject.
-   Be specific — not generic study advice.
-   Bad: "Read the question carefully."
-   Good: "Applying d·sinθ = nλ (double slit MAXIMA) to single slit — the same letters
-   appear but single slit minima use a·sinθ = nλ."
-
-5. self_test: Write questions a professor would put on an exam from THIS video's content.
-   Include: at least one definition, one calculation/derivation, one conceptual.
-   Write ONLY the question — no answers. The student must attempt them first.
-
-6. prerequisites: Name concepts precisely. "Huygens' Principle" not "wave theory."
-   Only include what is genuinely needed to understand this specific video.
-
-7. further_reading: Minimum format is "Chapter N, Book Title by Author."
-   Use standard university-level textbooks for this subject.
-
-VIDEO TRANSCRIPT:
-{transcript}
-"""
-
-WORK_PROMPT = """
-You are a senior professional who watched this video so your team doesn't have to.
-Your job is to extract everything needed to decide: should the team watch this?
-And if they do, what do they actually DO differently afterward?
-
-STRICT RULES:
-1. one_liner: One sentence. Slack-ready. "This covers X and is relevant if your team does Y."
-   Someone must be able to forward this to their manager and have it make sense.
-
-2. watch_or_skip: Begin with exactly "Watch" or "Skip" then a colon then one reason.
-   If Watch: reference a specific section, timestamp, or use case.
-   If Skip: explain what the viewer already knows that makes this redundant.
-
-3. key_points: Each point must answer "So what? What changes about how we work?"
-   Include the speaker's actual recommendations, benchmarks, and named comparisons.
-   If they said "X is 4x faster than Y at Z workloads" — write that exactly.
-   NOT: "The speaker discussed performance." YES: "Redis showed 4x lower latency
-   than Postgres for session reads in the benchmark at 10k concurrent users."
-
-4. tools_mentioned: Exact names only. No descriptions. No sentences.
-   "Redis", "LangChain", "Railway". These are searchable tags.
-
-5. decisions_to_make: Concrete decisions tied to this video's content.
-   Format: "Evaluate whether to [do X] given [evidence from video]."
-   These should be things a team lead could put in a Notion task today.
-
-6. next_actions: Enough detail to execute right now.
-   Include commands, URLs, search terms, specific chapter/doc references.
-   "brew install redis && redis-server" not "try Redis."
-
-VIDEO TRANSCRIPT:
-{transcript}
-"""
-
-QUICK_PROMPT = """
-You are a brilliant friend who just watched this video and is explaining it to someone
-who has 60 seconds and zero patience. You know everything but speak simply.
-No jargon unless absolutely necessary. No filler. No "in conclusion."
-Write like a human, not a robot. The person reading this should feel like
-they can confidently talk about this video at dinner tonight.
-
-Provide:
-- A short conversational title
-- 2-3 sentence summary: what it's about, the most surprising thing, the one thing to remember
-- 3-5 genuinely interesting takeaways (not obvious filler)
-- 2-3 topic labels (plain language, not academic categories)
-- 0-2 action items — only if the video genuinely had something worth doing
-
-VIDEO TRANSCRIPT:
-{transcript}
-"""
-
-DEFAULT_SECTIONS = {
-    "summary":       True,
-    "key_takeaways": True,
-    "topics":        True,
-    "action_items":  True,
-}
-
-
-def extract_video_insights(
-    transcript: str,
-    mode: str = "study",
-    sections: dict = None
-) -> Union[StudyNotes, WorkBrief, VideoInsights]:
-    """
-    Extract insights from a YouTube transcript.
-
-    Args:
-        transcript: raw transcript text
-        mode: "study" | "work" | "quick" — determines output Pydantic model and AI prompt
-        sections: only used for Quick mode (legacy sections dict) — ignored for Study/Work
-
-    Returns:
-        StudyNotes  if mode == "study"
-        WorkBrief   if mode == "work"
-        VideoInsights if mode == "quick"
-    """
-    if sections is None:
-        sections = DEFAULT_SECTIONS.copy()
-
-    if mode == "study":
-        structured_llm = get_model().with_structured_output(StudyNotes)
-        prompt = STUDY_PROMPT.format(transcript=transcript)
-        return structured_llm.invoke(prompt)
-
-    elif mode == "work":
-        structured_llm = get_model().with_structured_output(WorkBrief)
-        prompt = WORK_PROMPT.format(transcript=transcript)
-        return structured_llm.invoke(prompt)
-
-    else:
-        # Quick mode — uses VideoInsights, same as before
-        # sections dict controls which fields the AI is asked to fill
-        structured_llm = get_model().with_structured_output(VideoInsights)
-
-        instructions = ["- A short title describing what the video is about (always required)"]
-
-        if sections.get("summary", True):
-            instructions.append("- Summary: 2-3 sentences max. What it's about, "
-                                 "the most surprising thing, the one thing worth remembering. "
-                                 "Conversational tone.")
-        else:
-            instructions.append("- summary: return empty string ''")
-
-        if sections.get("key_takeaways", True):
-            instructions.append("- Key takeaways: exactly 3-5 genuinely interesting points. "
-                                 "Not obvious filler. Punchy, complete thoughts.")
-        else:
-            instructions.append("- key_takeaways: return empty list []")
-
-        if sections.get("topics", True):
-            instructions.append("- Topics covered: 2-3 plain-language topic labels only.")
-        else:
-            instructions.append("- topics_covered: return empty list []")
-
-        if sections.get("action_items", True):
-            instructions.append("- Action items: 0-2 only if genuinely actionable. "
-                                 "If nothing is worth doing, return empty list.")
-        else:
-            instructions.append("- action_items: return empty list []")
-
-        instructions_text = "\n    ".join(instructions)
-
-        prompt = f"""
-{QUICK_PROMPT.format(transcript="")}
-
-Provide:
-{instructions_text}
-
-VIDEO TRANSCRIPT:
-{transcript}
-"""
-        return structured_llm.invoke(prompt)
 
 
 # ─── Utilities ────────────────────────────────────────────────────────────────
