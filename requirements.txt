@@ -5,3 +5,6 @@ langchain-openai
 youtube-transcript-api
 requests
 pydantic
+fastapi
+uvicorn
+supabase

@@ -1,4 +1,6 @@
 import os
+from typing import Optional
+
 import requests
 import streamlit as st
 from dotenv import load_dotenv
@@ -15,7 +17,9 @@ NOTION_BLOCK_LIMIT = 90  # leave some buffer
 
 # ─── Auth Helpers ─────────────────────────────────────────────────────────────
 
-def get_notion_token():
+def get_notion_token(override: Optional[str] = None):
+    if override:
+        return override
     token = os.getenv("NOTION_TOKEN")
     if token:
         return token
@@ -24,24 +28,6 @@ def get_notion_token():
     except Exception:
         return None
 
-def get_notion_page_id():
-    page_id = os.getenv("NOTION_PAGE_ID")
-    if page_id:
-        return page_id
-    try:
-        return st.secrets.get("NOTION_PAGE_ID", "")
-    except Exception:
-        return None
-
-def get_headers():
-    token = get_notion_token()
-    if not token:
-        raise ValueError("Notion token not found. Please add your token in Settings.")
-    return {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-        "Notion-Version": NOTION_VERSION
-    }
 
 def clean_page_id(page_id: str) -> str:
     if not page_id:
@@ -49,6 +35,30 @@ def clean_page_id(page_id: str) -> str:
     if "/" in page_id:
         page_id = page_id.split("/")[-1].split("?")[0]
     return page_id.replace("-", "")[-32:]
+
+
+def get_notion_page_id(override: Optional[str] = None):
+    if override:
+        return clean_page_id(override)
+    page_id = os.getenv("NOTION_PAGE_ID")
+    if page_id:
+        return clean_page_id(page_id)
+    try:
+        secret_value = st.secrets.get("NOTION_PAGE_ID", "")
+        return clean_page_id(secret_value) if secret_value else None
+    except Exception:
+        return None
+
+
+def get_headers(token_override: Optional[str] = None):
+    token = get_notion_token(token_override)
+    if not token:
+        raise ValueError("Notion token not found. Please add your token in Settings.")
+    return {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Notion-Version": NOTION_VERSION
+    }
 
 
 # ─── Block Builders ───────────────────────────────────────────────────────────
@@ -180,7 +190,7 @@ def make_paragraph(text: str, italic: bool = False, color: str = "default") -> d
 
 # ─── Append Blocks (handles >90 block limit) ──────────────────────────────────
 
-def _append_blocks(page_id: str, blocks: list):
+def _append_blocks(page_id: str, blocks: list, notion_token: Optional[str] = None):
     """
     Append blocks to an existing page in batches of NOTION_BLOCK_LIMIT.
     Notion allows max 100 children per request.
@@ -191,13 +201,18 @@ def _append_blocks(page_id: str, blocks: list):
         resp = requests.patch(
             f"https://api.notion.com/v1/blocks/{page_id}/children",
             json={"children": batch},
-            headers=get_headers()
+            headers=get_headers(notion_token)
         )
         if resp.status_code not in (200, 201):
             raise Exception(f"Failed to append blocks: {resp.json().get('message')}")
 
 
-def _create_page_with_overflow(parent_page_id: str, payload: dict, extra_blocks: list) -> str:
+def _create_page_with_overflow(
+    parent_page_id: str,
+    payload: dict,
+    extra_blocks: list,
+    notion_token: Optional[str] = None
+) -> str:
     """
     Create a page with the first batch of children inline,
     then append remaining blocks separately.
@@ -206,7 +221,7 @@ def _create_page_with_overflow(parent_page_id: str, payload: dict, extra_blocks:
     response = requests.post(
         "https://api.notion.com/v1/pages",
         json=payload,
-        headers=get_headers()
+        headers=get_headers(notion_token)
     )
     if response.status_code not in (200, 201):
         raise Exception(f"Page creation failed: {response.json().get('message')}")
@@ -215,14 +230,14 @@ def _create_page_with_overflow(parent_page_id: str, payload: dict, extra_blocks:
 
     # Append remaining blocks if any
     if extra_blocks:
-        _append_blocks(page_id, extra_blocks)
+        _append_blocks(page_id, extra_blocks, notion_token)
 
     return page_id
 
 
 # ─── Tasks Database (shared between modes) ────────────────────────────────────
 
-def create_tasks_database(title: str, parent_page_id: str) -> str | None:
+def create_tasks_database(title: str, parent_page_id: str, notion_token: Optional[str] = None) -> str | None:
     parent_page_id = clean_page_id(parent_page_id)
     payload = {
         "parent": {"type": "page_id", "page_id": parent_page_id},
@@ -254,14 +269,14 @@ def create_tasks_database(title: str, parent_page_id: str) -> str | None:
     }
     response = requests.post(
         "https://api.notion.com/v1/databases",
-        json=payload, headers=get_headers()
+        json=payload, headers=get_headers(notion_token)
     )
     if response.status_code in (200, 201):
         return response.json().get("id")
     raise Exception(f"Database creation failed: {response.json().get('message')}")
 
 
-def push_tasks_to_database(task_list: ActionItemList, database_id: str):
+def push_tasks_to_database(task_list: ActionItemList, database_id: str, notion_token: Optional[str] = None):
     for item in task_list.items:
         priority = item.priority if item.priority in PRIORITY_COLORS else "Medium"
         payload = {
@@ -277,13 +292,18 @@ def push_tasks_to_database(task_list: ActionItemList, database_id: str):
             payload["properties"]["Due Date"] = {"date": {"start": item.due_date}}
         requests.post(
             "https://api.notion.com/v1/pages",
-            json=payload, headers=get_headers()
+            json=payload, headers=get_headers(notion_token)
         )
 
 
 # ─── Study Mode Push ──────────────────────────────────────────────────────────
 
-def push_study_notes(notes: StudyNotes, video_url: str) -> str:
+def push_study_notes(
+    notes: StudyNotes,
+    video_url: str,
+    notion_token: Optional[str] = None,
+    notion_page_id: Optional[str] = None,
+) -> str:
     """
     Create a structured study notes page in Notion.
 
@@ -296,7 +316,7 @@ def push_study_notes(notes: StudyNotes, video_url: str) -> str:
     - Self-Test (toggle blocks — question visible, answer hidden)
     - Prerequisites + Further Reading
     """
-    parent_page_id = clean_page_id(get_notion_page_id())
+    parent_page_id = clean_page_id(get_notion_page_id(notion_page_id))
 
     all_blocks = [
         make_bookmark(video_url),
@@ -377,13 +397,18 @@ def push_study_notes(notes: StudyNotes, video_url: str) -> str:
         "children": first_batch
     }
 
-    page_id = _create_page_with_overflow(parent_page_id, payload, extra_blocks)
+    page_id = _create_page_with_overflow(parent_page_id, payload, extra_blocks, notion_token)
     return page_id
 
 
 # ─── Work Mode Push ───────────────────────────────────────────────────────────
 
-def push_work_brief(brief: WorkBrief, video_url: str) -> str:
+def push_work_brief(
+    brief: WorkBrief,
+    video_url: str,
+    notion_token: Optional[str] = None,
+    notion_page_id: Optional[str] = None,
+) -> str:
     """
     Create a structured work brief page in Notion.
 
@@ -396,7 +421,7 @@ def push_work_brief(brief: WorkBrief, video_url: str) -> str:
     - Decisions to Make (checkbox items — actually checkable)
     - Next Actions
     """
-    parent_page_id = clean_page_id(get_notion_page_id())
+    parent_page_id = clean_page_id(get_notion_page_id(notion_page_id))
 
     # Determine watch/skip styling
     is_watch = brief.watch_or_skip.lower().startswith("watch")
@@ -476,7 +501,7 @@ def push_work_brief(brief: WorkBrief, video_url: str) -> str:
         "children": first_batch
     }
 
-    page_id = _create_page_with_overflow(parent_page_id, payload, extra_blocks)
+    page_id = _create_page_with_overflow(parent_page_id, payload, extra_blocks, notion_token)
     return page_id
 
 
@@ -486,7 +511,9 @@ def push_youtube(
     insights: VideoInsights,
     video_url: str,
     task_list: ActionItemList = None,
-    sections: dict = None
+    sections: dict = None,
+    notion_token: Optional[str] = None,
+    notion_page_id: Optional[str] = None,
 ):
     if sections is None:
         sections = {
@@ -494,7 +521,7 @@ def push_youtube(
             "topics": True, "action_items": True,
         }
 
-    parent_page_id = clean_page_id(get_notion_page_id())
+    parent_page_id = clean_page_id(get_notion_page_id(notion_page_id))
 
     page_blocks = [make_bookmark(video_url), make_divider()]
 
@@ -531,18 +558,23 @@ def push_youtube(
         "children": first_batch
     }
 
-    page_id = _create_page_with_overflow(parent_page_id, payload, extra_blocks)
+    page_id = _create_page_with_overflow(parent_page_id, payload, extra_blocks, notion_token)
 
     if task_list and task_list.items:
-        db_id = create_tasks_database(insights.title, page_id)
+        db_id = create_tasks_database(insights.title, page_id, notion_token)
         if db_id:
-            push_tasks_to_database(task_list, db_id)
+            push_tasks_to_database(task_list, db_id, notion_token)
 
 
 # ─── Meeting Mode (unchanged) ─────────────────────────────────────────────────
 
-def push_meeting(task_list: ActionItemList, summary: MeetingSummary):
-    parent_page_id = clean_page_id(get_notion_page_id())
+def push_meeting(
+    task_list: ActionItemList,
+    summary: MeetingSummary,
+    notion_token: Optional[str] = None,
+    notion_page_id: Optional[str] = None,
+):
+    parent_page_id = clean_page_id(get_notion_page_id(notion_page_id))
 
     page_blocks = [
         make_callout(summary.summary, "💡", "blue_background"),
@@ -567,7 +599,7 @@ def push_meeting(task_list: ActionItemList, summary: MeetingSummary):
 
     response = requests.post(
         "https://api.notion.com/v1/pages",
-        json=payload, headers=get_headers()
+        json=payload, headers=get_headers(notion_token)
     )
     if response.status_code not in (200, 201):
         raise Exception(f"Page creation failed: {response.json().get('message')}")
@@ -575,6 +607,6 @@ def push_meeting(task_list: ActionItemList, summary: MeetingSummary):
     summary_page_id = response.json().get("id")
 
     if task_list and task_list.items:
-        db_id = create_tasks_database(summary.title, summary_page_id)
+        db_id = create_tasks_database(summary.title, summary_page_id, notion_token)
         if db_id:
-            push_tasks_to_database(task_list, db_id)
+            push_tasks_to_database(task_list, db_id, notion_token)
