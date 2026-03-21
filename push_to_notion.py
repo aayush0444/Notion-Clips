@@ -188,9 +188,28 @@ def push_meeting(task_list: ActionItemList, summary: MeetingSummary):
 
 # ─── YouTube Mode ─────────────────────────────────────────────────────────────
 
-def push_youtube(insights: VideoInsights, video_url: str, task_list: ActionItemList = None):
+def push_youtube(
+    insights: VideoInsights,
+    video_url: str,
+    task_list: ActionItemList = None,
+    sections: dict = None
+):
+    """
+    Push YouTube notes to Notion.
+    sections dict controls which blocks are included in the page.
+    If sections is None, all blocks are included (backward compatible).
+    """
+    if sections is None:
+        sections = {
+            "summary":       True,
+            "key_takeaways": True,
+            "topics":        True,
+            "action_items":  True,
+        }
+
     parent_page_id = clean_page_id(get_notion_page_id())
 
+    # Always include video bookmark at top
     page_blocks = [
         {
             "object": "block",
@@ -198,17 +217,26 @@ def push_youtube(insights: VideoInsights, video_url: str, task_list: ActionItemL
             "bookmark": {"url": video_url}
         },
         make_divider(),
-        make_callout(insights.summary, "🎬", "yellow_background"),
-        make_divider(),
-        make_heading("💡 Key Takeaways"),
-        *[make_bullet(t) for t in insights.key_takeaways],
-        make_divider(),
-        make_heading("📚 Topics Covered"),
-        *[make_bullet(t) for t in insights.topics_covered],
-        make_divider(),
-        make_heading("✅ Action Items"),
-        *[make_bullet(a) for a in insights.action_items],
     ]
+
+    # Add sections based on user preferences
+    if sections.get("summary", True) and insights.summary:
+        page_blocks.append(make_callout(insights.summary, "🎬", "yellow_background"))
+        page_blocks.append(make_divider())
+
+    if sections.get("key_takeaways", True) and insights.key_takeaways:
+        page_blocks.append(make_heading("💡 Key Takeaways"))
+        page_blocks.extend([make_bullet(t) for t in insights.key_takeaways])
+        page_blocks.append(make_divider())
+
+    if sections.get("topics", True) and insights.topics_covered:
+        page_blocks.append(make_heading("📚 Topics Covered"))
+        page_blocks.extend([make_bullet(t) for t in insights.topics_covered])
+        page_blocks.append(make_divider())
+
+    if sections.get("action_items", True) and insights.action_items:
+        page_blocks.append(make_heading("✅ Action Items"))
+        page_blocks.extend([make_bullet(a) for a in insights.action_items])
 
     payload = {
         "parent": {"type": "page_id", "page_id": parent_page_id},
