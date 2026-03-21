@@ -1,0 +1,79 @@
+"use client"
+
+import React, { createContext, useContext, useEffect, useState } from 'react'
+import { Mode } from './types'
+
+interface AppState {
+  sessionId: string | null
+  isConnected: boolean
+  setIsConnected: (val: boolean) => void
+  url: string
+  setUrl: (val: string) => void
+  videoId: string | null
+  setVideoId: (val: string | null) => void
+  mode: Mode
+  setMode: (mode: Mode) => void
+  results: any | null
+  setResults: (val: any) => void
+  transcript: string | null
+  setTranscript: (val: string | null) => void
+  reset: () => void
+}
+
+const AppContext = createContext<AppState | undefined>(undefined)
+
+export function AppProvider({ children }: { children: React.ReactNode }) {
+  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [isConnected, setIsConnected] = useState(false)
+  const [url, setUrl] = useState("")
+  const [videoId, setVideoId] = useState<string | null>(null)
+  const [mode, setMode] = useState<Mode>('study')
+  const [results, setResults] = useState<any | null>(null)
+  const [transcript, setTranscript] = useState<string | null>(null)
+
+  useEffect(() => {
+    let id = localStorage.getItem("notionclip_session_id")
+    if (!id) {
+      id = crypto.randomUUID()
+      localStorage.setItem("notionclip_session_id", id)
+    }
+    setSessionId(id)
+
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("connected") === "true") {
+      setIsConnected(true)
+      window.history.replaceState({}, '', '/app')
+    } else {
+      fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/notion/status/${id}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.has_token) setIsConnected(true)
+        })
+        .catch(() => {})
+    }
+  }, [])
+
+  const reset = () => {
+    setUrl("")
+    setVideoId(null)
+    setResults(null)
+    setTranscript(null)
+  }
+
+  return (
+    <AppContext.Provider value={{
+      sessionId, isConnected, setIsConnected,
+      url, setUrl, videoId, setVideoId,
+      mode, setMode, results, setResults,
+      transcript, setTranscript, reset
+    }}>
+      {children}
+    </AppContext.Provider>
+  )
+}
+
+export function useAppStore() {
+  const context = useContext(AppContext)
+  if (!context) throw new Error("useAppStore must be used within AppProvider")
+  return context
+}
