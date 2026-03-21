@@ -1,12 +1,15 @@
 import time
 import streamlit as st
-from pages_ui.components import page_header, render_youtube_result, save_to_history
+from pages_ui.components import (
+    page_header, render_youtube_result,
+    render_study_notes, render_work_brief,
+    save_to_history
+)
 
 
-# ─── Preference helpers ───────────────────────────────────────────────────────
+# ─── Preference Helpers ───────────────────────────────────────────────────────
 
 def load_preferences():
-    """Load saved preferences from session state or return defaults."""
     return st.session_state.get("output_prefs", {
         "mode":          "study",
         "summary":       True,
@@ -18,29 +21,40 @@ def load_preferences():
 
 
 def save_preferences(prefs: dict):
-    """Persist preferences to session state."""
     st.session_state["output_prefs"] = prefs
 
 
-# ─── Mode descriptions shown in UI ───────────────────────────────────────────
+# ─── Mode Info ────────────────────────────────────────────────────────────────
 
 MODE_INFO = {
     "study": {
         "icon":  "📚",
         "label": "Study Mode",
-        "desc":  "Technical depth. Preserves exact terms, formulas, definitions. For lectures, tutorials, courses.",
+        "desc":  (
+            "For lectures, tutorials, courses. "
+            "Extracts formulas, key facts with timestamps, self-test questions, "
+            "and common mistakes. Scales to video length — a 2hr lecture gets ~40 facts."
+        ),
         "color": "#60A5FA",
     },
     "work": {
         "icon":  "💼",
         "label": "Work Mode",
-        "desc":  "What your team needs to know. Tools, recommendations, decisions. For tech talks, industry videos.",
+        "desc":  (
+            "For tech talks, industry videos, team-relevant content. "
+            "Watch/Skip verdict, named tools, decisions, specific next actions. "
+            "Structured for sharing with your team."
+        ),
         "color": "#A78BFA",
     },
     "quick": {
         "icon":  "⚡",
         "label": "Quick Mode",
-        "desc":  "The gist in 60 seconds. Conversational, no jargon. For news, docs, general interest videos.",
+        "desc":  (
+            "For news, docs, general interest. "
+            "Conversational summary — the gist in 2 minutes. "
+            "No jargon, no structure overhead."
+        ),
         "color": "#34D399",
     },
 }
@@ -49,7 +63,7 @@ MODE_INFO = {
 def render():
     page_header("🎬", "YouTube Mode", "Paste any YouTube URL — get insights without watching")
 
-    # ── Transcript source indicator ───────────────────────────────────────────
+    # Transcript source indicator
     from youtube_mode import get_transcript_source_info
     source_info = get_transcript_source_info()
     st.markdown(f"""
@@ -81,9 +95,9 @@ def render():
 
     st.markdown("---")
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # OUTPUT PREFERENCES PANEL
-    # ═══════════════════════════════════════════════════════════════════════
+    # ═══════════════════════════════════════════════════════════════════════════
+    # OUTPUT PREFERENCES
+    # ═══════════════════════════════════════════════════════════════════════════
     prefs = load_preferences()
 
     st.markdown("""
@@ -93,28 +107,30 @@ def render():
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Level 2: Mode selector ────────────────────────────────────────────
-    st.markdown("<div style='font-size:0.85rem; opacity:0.6; margin-bottom:0.5rem;'>Choose output style:</div>",
-                unsafe_allow_html=True)
+    # Mode selector
+    st.markdown(
+        "<div style='font-size:0.85rem; opacity:0.6; margin-bottom:0.5rem;'>Choose output style:</div>",
+        unsafe_allow_html=True
+    )
 
     col1, col2, col3 = st.columns(3)
     selected_mode = prefs["mode"]
 
     for col, (mode_key, info) in zip([col1, col2, col3], MODE_INFO.items()):
         with col:
-            is_selected = selected_mode == mode_key
+            is_selected  = selected_mode == mode_key
             border_color = info["color"] if is_selected else "rgba(255,255,255,0.08)"
-            bg_color = "1E1B4B" if is_selected else "0F0D1A"
+            bg_hex       = "1E1B4B" if is_selected else "0F0D1A"
             st.markdown(f"""
             <div style="border:2px solid {border_color}; border-radius:12px;
-                        background:#{bg_color}; padding:0.8rem; text-align:center;
+                        background:#{bg_hex}; padding:0.8rem; text-align:center;
                         margin-bottom:0.4rem;">
                 <div style="font-size:1.5rem;">{info['icon']}</div>
                 <div style="font-family:'Syne',sans-serif; font-weight:700;
                             color:{info['color']}; font-size:0.88rem; margin:0.2rem 0;">
                     {info['label']}
                 </div>
-                <div style="font-size:0.75rem; opacity:0.55; line-height:1.4;">
+                <div style="font-size:0.73rem; opacity:0.55; line-height:1.4;">
                     {info['desc']}
                 </div>
             </div>
@@ -131,11 +147,12 @@ def render():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Level 1: Section toggles (Quick Mode only — hidden for Study/Work) ─
+    # Section toggles (shown for Quick mode only — Study/Work have fixed sections)
     if prefs["mode"] == "quick":
-        st.markdown("<div style='font-size:0.85rem; opacity:0.6; margin-bottom:0.5rem;'>Choose what appears in your Notion page:</div>",
-                    unsafe_allow_html=True)
-
+        st.markdown(
+            "<div style='font-size:0.85rem; opacity:0.6; margin-bottom:0.5rem;'>Choose sections:</div>",
+            unsafe_allow_html=True
+        )
         c1, c2, c3, c4, c5 = st.columns(5)
         section_cols = {
             "summary":       (c1, "📝 Summary"),
@@ -144,7 +161,6 @@ def render():
             "action_items":  (c4, "✅ Actions"),
             "get_tasks":     (c5, "🗂️ Task DB"),
         }
-
         for key, (col, label) in section_cols.items():
             with col:
                 new_val = st.checkbox(label, value=prefs[key], key=f"sec_{key}")
@@ -152,44 +168,44 @@ def render():
                     prefs[key] = new_val
                     save_preferences(prefs)
 
-        # Warn if nothing selected
         any_content = any([
             prefs["summary"], prefs["key_takeaways"],
             prefs["topics"], prefs["action_items"], prefs["get_tasks"]
         ])
         if not any_content:
-            st.markdown('<div class="notify notify-error">Select at least one section to include in the output.</div>',
+            st.markdown('<div class="notify notify-error">Select at least one section.</div>',
                         unsafe_allow_html=True)
-
-        st.markdown("""
-        <div class="notify notify-info" style="margin-top:0.5rem;">
-            ⚡ Quick Mode caps output regardless of section selection —
-            2-sentence summary, 3 takeaways, minimal topics.
-        </div>
-        """, unsafe_allow_html=True)
     else:
-        # Study and Work modes produce fixed, structured output — sections not applicable
-        mode_info_current = MODE_INFO[prefs["mode"]]
-        st.markdown(f"""
-        <div class="notify notify-info" style="margin-top:0.5rem;">
-            {mode_info_current['icon']} <b>{mode_info_current['label']}</b> produces its own structured output —
-            section toggles apply to Quick Mode only.
-        </div>
-        """, unsafe_allow_html=True)
+        # Study / Work modes — show what will be extracted
+        mode_info = MODE_INFO[prefs["mode"]]
+        if prefs["mode"] == "study":
+            st.markdown(f"""
+            <div class="notify notify-info">
+                {mode_info['icon']} Study Mode will extract:
+                <b>Core Concept · Formula Sheet · Key Facts (scaled to video length) ·
+                Common Mistakes · Self-Test Questions · Prerequisites · Further Reading</b><br>
+                <span style="opacity:0.7;">
+                A 10-min video gets ~8 facts. A 2-hour lecture gets ~40 facts with timestamps.
+                </span>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="notify notify-info">
+                {mode_info['icon']} Work Mode will extract:
+                <b>Watch/Skip Verdict · One-Liner Summary · Key Points (scaled) ·
+                Tools Mentioned · Decisions to Make · Next Actions</b><br>
+                <span style="opacity:0.7;">
+                Output scales to video length. Long videos get proportionally more points.
+                </span>
+            </div>
+            """, unsafe_allow_html=True)
+        any_content = True
 
     st.markdown("---")
 
-    # ── Run button ────────────────────────────────────────────────────────
-    # For Quick mode, check that at least one section is selected
-    if prefs["mode"] == "quick":
-        any_content = any([
-            prefs["summary"], prefs["key_takeaways"],
-            prefs["topics"], prefs["action_items"], prefs["get_tasks"]
-        ])
-        can_run = bool(url_input) and any_content
-    else:
-        can_run = bool(url_input)
-
+    # ── Run Button ────────────────────────────────────────────────────────────
+    can_run   = bool(url_input) and any_content
     mode_info = MODE_INFO[prefs["mode"]]
 
     if st.button(
@@ -206,30 +222,39 @@ def render():
 
                 st.write("📥 Fetching transcript...")
                 transcript, duration = get_youtube_transcript(video_id)
-                st.write(f"✅ Transcript ready — {len(transcript.split()):,} words")
+
+                word_count = len(transcript.split())
+                st.write(f"✅ Transcript ready — {word_count:,} words (~{duration:.0f} min video)")
+
+                # Warn about chunked processing for long videos
+                if word_count > 8000:
+                    st.write(
+                        f"📦 Long video detected — using chunked extraction "
+                        f"({word_count // 4000 + 1} passes) to prevent hallucination..."
+                    )
 
                 start = time.time()
 
-                # Build sections dict — used by Quick mode only
+                # Build sections dict for quick mode
                 sections = {
-                    "summary":       prefs["summary"],
-                    "key_takeaways": prefs["key_takeaways"],
-                    "topics":        prefs["topics"],
-                    "action_items":  prefs["action_items"],
+                    "summary":       prefs.get("summary", True),
+                    "key_takeaways": prefs.get("key_takeaways", True),
+                    "topics":        prefs.get("topics", True),
+                    "action_items":  prefs.get("action_items", True),
                 }
 
-                st.write(f"{mode_info['icon']} Extracting insights in {mode_info['label']}...")
+                st.write(f"{mode_info['icon']} Extracting with {mode_info['label']}...")
                 insights = extract_video_insights(
                     transcript,
                     mode=prefs["mode"],
-                    sections=sections
+                    sections=sections,
+                    duration_minutes=duration
                 )
 
                 tasks_obj = None
-                # Task extraction only available in Quick mode (Study/Work have their own structure)
-                if prefs["mode"] == "quick" and prefs.get("get_tasks"):
+                if prefs.get("get_tasks") and prefs["mode"] == "quick":
                     st.write("🗂️ Extracting tasks...")
-                    raw = extract_tasks(transcript)
+                    raw       = extract_tasks(transcript)
                     tasks_obj = deduplicate_tasks(raw)
 
                 proc_time = time.time() - start
@@ -244,6 +269,7 @@ def render():
                     "url":             url_input,
                     "mode":            prefs["mode"],
                     "sections":        sections,
+                    "word_count":      word_count,
                 }
                 st.session_state["youtube_result"] = result
                 status.update(label=f"✅ Done in {proc_time:.1f}s!", state="complete")
@@ -252,33 +278,35 @@ def render():
                 status.update(label="❌ Failed", state="error")
                 st.markdown(f"""
                 <div class="notify notify-error">
-                    <b>Could not process this video</b><br>
+                    <b>Could not process this video.</b><br>
                     <pre style="font-size:0.8rem; margin-top:0.5rem;
                                 white-space:pre-wrap;">{str(e)}</pre>
                 </div>
                 """, unsafe_allow_html=True)
 
-    # ── Results ───────────────────────────────────────────────────────────
+    # ── Results ───────────────────────────────────────────────────────────────
     result = st.session_state.get("youtube_result")
     if result:
         st.markdown("---")
 
         used_mode = result.get("mode", "quick")
         used_info = MODE_INFO.get(used_mode, MODE_INFO["quick"])
+        word_count = result.get("word_count", 0)
+
         st.markdown(f"""
         <div style="font-family:'Syne',sans-serif; font-size:1.1rem; font-weight:700;
-                    color:#A78BFA; margin-bottom:0.5rem;">📊 Results</div>
+                    color:#A78BFA; margin-bottom:0.3rem;">📊 Results</div>
         <div style="font-size:0.8rem; color:{used_info['color']}; margin-bottom:1rem; opacity:0.8;">
-            {used_info['icon']} Generated in {used_info['label']}
+            {used_info['icon']} {used_info['label']} ·
+            {word_count:,} words processed ·
+            {"chunked extraction" if word_count > 8000 else "single-pass extraction"}
         </div>
         """, unsafe_allow_html=True)
 
-        # ── ROUTE RENDER by mode ──────────────────────────────────────────
+        # Route to the correct renderer
         if used_mode == "study":
-            from pages_ui.components import render_study_notes
             render_study_notes(result)
         elif used_mode == "work":
-            from pages_ui.components import render_work_brief
             render_work_brief(result)
         else:
             render_youtube_result(result)
@@ -290,13 +318,14 @@ def render():
             if st.button("📤 Push to Notion", use_container_width=True):
                 with st.status("Pushing to Notion...", expanded=True) as status:
                     try:
-                        # ── ROUTE NOTION PUSH by mode ─────────────────────
                         if used_mode == "study":
                             from push_to_notion import push_study_notes
                             push_study_notes(result["insights"], result["url"])
+
                         elif used_mode == "work":
                             from push_to_notion import push_work_brief
                             push_work_brief(result["insights"], result["url"])
+
                         else:
                             from push_to_notion import push_youtube
                             push_youtube(
@@ -307,12 +336,20 @@ def render():
                             )
 
                         status.update(label="✅ Pushed to Notion!", state="complete")
-                        title = result["insights"].title if result.get("insights") else "YouTube Video"
+
+                        # Build title for history
+                        insights = result.get("insights")
+                        title = getattr(insights, "title", "YouTube Video") or "YouTube Video"
                         save_to_history("youtube", title, result)
-                        st.markdown('<div class="notify notify-success">✅ Saved to Notion!</div>',
-                                    unsafe_allow_html=True)
+
+                        st.markdown(
+                            '<div class="notify notify-success">✅ Saved to Notion!</div>',
+                            unsafe_allow_html=True
+                        )
+
                     except Exception as e:
                         status.update(label=f"❌ {e}", state="error")
+
         with col2:
             if st.button("🗑️ Clear & Process Another", use_container_width=True):
                 if "youtube_result" in st.session_state:

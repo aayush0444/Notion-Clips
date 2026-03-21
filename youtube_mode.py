@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from youtube_transcript_api import YouTubeTranscriptApi
 
 load_dotenv()
+
 from gemini import extract_video_insights, extract_tasks, deduplicate_tasks, calculate_accuracy
 from push_to_notion import push_youtube
 from models import ActionItemList
@@ -15,7 +16,6 @@ from models import ActionItemList
 # ─── API Key Helpers ──────────────────────────────────────────────────────────
 
 def get_youtube_api_key():
-    """YouTube Data API v3 key — Streamlit secrets first, then .env."""
     try:
         key = st.secrets.get("YOUTUBE_API_KEY", "")
         if key:
@@ -26,7 +26,6 @@ def get_youtube_api_key():
 
 
 def get_supadata_api_key():
-    """Supadata API key — Streamlit secrets first, then .env."""
     try:
         key = st.secrets.get("SUPADATA_API_KEY", "")
         if key:
@@ -39,15 +38,8 @@ def get_supadata_api_key():
 # ─── URL Parsing ──────────────────────────────────────────────────────────────
 
 def extract_video_id(url_or_id: str) -> str:
-    """
-    Accepts any YouTube URL format or a raw video ID and returns just the ID.
-      https://www.youtube.com/watch?v=abc123  → abc123
-      https://youtu.be/abc123                → abc123
-      abc123                                 → abc123
-    """
     if re.match(r'^[a-zA-Z0-9_-]{11}$', url_or_id):
         return url_or_id
-
     patterns = [
         r'[?&]v=([a-zA-Z0-9_-]{11})',
         r'youtu\.be/([a-zA-Z0-9_-]{11})',
@@ -57,32 +49,85 @@ def extract_video_id(url_or_id: str) -> str:
         match = re.search(pattern, url_or_id)
         if match:
             return match.group(1)
-
     return url_or_id.strip()
 
 
-# ─── Transcript Fetching — Three Methods ─────────────────────────────────────
+# ─── Timestamp Formatting ─────────────────────────────────────────────────────
+#
+# This is the key upgrade from v2.
+# Instead of discarding timestamps, we embed [MM:SS] markers in the transcript
+# every ~30 seconds. This lets the AI reference approximate video positions
+# in every extracted fact, so users can jump back to the source.
 
-def _fetch_via_youtube_api(video_id: str):
+def _format_transcript_with_timestamps(segments: list) -> tuple[str, float]:
+    """
+    Takes raw transcript segments (from youtube-transcript-api).
+    Returns (formatted_transcript_with_timestamp_markers, duration_minutes).
+
+    Timestamp markers are inserted every ~30 seconds.
+    Format: [MM:SS] text text text [MM:SS] more text...
+    """
+    if not segments:
+        return "", 0.0
+
+    result = []
+    last_marker_time = -31.0  # force a marker at the very start
+
+    for seg in segments:
+        start = seg.get("start", 0)
+        text  = seg.get("text", "").strip()
+
+        if not text:
+            continue
+
+        # Insert a timestamp marker every ~30 seconds
+        if start - last_marker_time >= 30:
+            minutes = int(start // 60)
+            seconds = int(start % 60)
+            result.append(f"[{minutes:02d}:{seconds:02d}]")
+            last_marker_time = start
+
+        result.append(text)
+
+    # Calculate duration from last segment
+    last_seg = segments[-1]
+    duration_minutes = (
+        last_seg.get("start", 0) + last_seg.get("duration", 0)
+    ) / 60
+
+    return " ".join(result), duration_minutes
+
+
+def _plain_text_from_segments(segments: list) -> tuple[str, float]:
+    """Fallback: plain text without timestamps (for Supadata / YouTube API)."""
+    text = " ".join(s.get("text", "") for s in segments if s.get("text", "").strip())
+    if segments:
+        last = segments[-1]
+        duration = (last.get("start", 0) + last.get("duration", 0)) / 60
+    else:
+        duration = 0.0
+    return text.strip(), duration
+
+
+# ─── Transcript Fetching Methods ──────────────────────────────────────────────
+
+def _fetch_via_youtube_api(video_id: str) -> tuple | None:
     """
     Method 1: YouTube Data API v3 (official).
-    Reliable but limited to 100 quota units/day on free tier.
-    Returns (text, duration_minutes) or None if unavailable/quota exceeded.
+    Returns plain text (no per-segment timestamps available this way).
     """
     api_key = get_youtube_api_key()
     if not api_key:
         return None
 
     try:
-        # Step 1: Get available caption tracks
         resp = requests.get(
             "https://www.googleapis.com/youtube/v3/captions",
             params={"part": "snippet", "videoId": video_id, "key": api_key},
             timeout=10
         )
-
         if resp.status_code == 403:
-            print("  ⚠️  YouTube API quota exceeded — switching to fallback")
+            print("  ⚠️  YouTube API quota exceeded")
             return None
         if resp.status_code != 200:
             return None
@@ -91,27 +136,22 @@ def _fetch_via_youtube_api(video_id: str):
         if not items:
             return None
 
-        # Prefer English captions
         caption_id = None
         for item in items:
-            lang = item["snippet"].get("language", "")
-            if lang.startswith("en"):
+            if item["snippet"].get("language", "").startswith("en"):
                 caption_id = item["id"]
                 break
         if not caption_id:
             caption_id = items[0]["id"]
 
-        # Step 2: Download the caption track
         dl_resp = requests.get(
             f"https://www.googleapis.com/youtube/v3/captions/{caption_id}",
             params={"tfmt": "srt", "key": api_key},
             timeout=15
         )
-
         if dl_resp.status_code != 200:
             return None
 
-        # Parse SRT — strip timestamps and sequence numbers
         lines = []
         for line in dl_resp.text.split("\n"):
             line = line.strip()
@@ -126,7 +166,6 @@ def _fetch_via_youtube_api(video_id: str):
             params={"part": "contentDetails", "id": video_id, "key": api_key},
             timeout=10
         )
-
         duration_minutes = 0.0
         if v_resp.status_code == 200:
             dur_str = v_resp.json().get("items", [{}])[0].get(
@@ -147,11 +186,10 @@ def _fetch_via_youtube_api(video_id: str):
         return None
 
 
-def _fetch_via_supadata(video_id: str):
+def _fetch_via_supadata(video_id: str) -> tuple | None:
     """
     Method 2: Supadata API.
-    Scraping-based, works on most videos, more flexible than official API.
-    Returns (text, duration_minutes) or None if unavailable.
+    Returns plain text (no per-segment timestamps).
     """
     api_key = get_supadata_api_key()
     if not api_key:
@@ -164,14 +202,13 @@ def _fetch_via_supadata(video_id: str):
             headers={"x-api-key": api_key},
             timeout=20
         )
-
         if resp.status_code == 429:
             print("  ⚠️  Supadata rate limit hit")
             return None
         if resp.status_code != 200:
             return None
 
-        data = resp.json()
+        data    = resp.json()
         content = data.get("content", "")
         if not content:
             return None
@@ -179,8 +216,6 @@ def _fetch_via_supadata(video_id: str):
         text = content if isinstance(content, str) else " ".join(
             seg.get("text", "") for seg in content
         )
-
-        # Estimate duration (~130 words per minute of speech)
         duration_minutes = len(text.split()) / 130
 
         print("  ✅ Transcript via Supadata")
@@ -191,27 +226,26 @@ def _fetch_via_supadata(video_id: str):
         return None
 
 
-def _fetch_via_scraping(video_id: str):
+def _fetch_via_scraping(video_id: str) -> tuple | None:
     """
-    Method 3: youtube-transcript-api (scraping fallback).
-    Original method — works but gets rate-limited after a few requests
-    on shared servers. Used as last resort.
+    Method 3: youtube-transcript-api (scraping).
+    This is the only method that gives us per-segment timestamps.
+    Returns transcript WITH timestamp markers embedded.
     """
     try:
         data = YouTubeTranscriptApi().fetch(video_id).to_raw_data()
-        text = " ".join([s["text"] for s in data])
 
-        if data:
-            last = data[-1]
-            duration_minutes = (last["start"] + last.get("duration", 0)) / 60
-        else:
-            duration_minutes = 0.0
+        if not data:
+            return None
+
+        # Use timestamp-formatted version — this is the upgrade
+        text, duration = _format_transcript_with_timestamps(data)
 
         if not text.strip():
             return None
 
-        print("  ✅ Transcript via scraping (fallback)")
-        return text, duration_minutes
+        print("  ✅ Transcript via scraping (with timestamps)")
+        return text, duration
 
     except Exception as e:
         print(f"  ⚠️  Scraping error: {e}")
@@ -220,35 +254,126 @@ def _fetch_via_scraping(video_id: str):
 
 # ─── Main Transcript Function ─────────────────────────────────────────────────
 
-def get_youtube_transcript(video_id: str) -> tuple:
+def _inject_timestamps_into_plain_text(plain_text: str, segments: list) -> str:
     """
-    Fetch transcript using a 3-method fallback chain:
-      1. YouTube Data API v3  (official, reliable, 100 req/day free)
-      2. Supadata             (scraping-based, flexible)
-      3. youtube-transcript-api (direct scraping, last resort)
+    Takes a plain-text transcript (from Supadata / YouTube API) and a list
+    of raw timed segments (from scraping), and injects [MM:SS] markers into
+    the plain text at approximately the right positions by word-count ratio.
 
-    Raises Exception with clear message if all three methods fail.
+    This is an approximation — the two sources may have slightly different
+    word counts due to auto-caption cleaning. The result is accurate to
+    within ~10-15 seconds, which is enough for users to navigate to the
+    right spot in the video.
+    """
+    if not segments or not plain_text.strip():
+        return plain_text
+
+    # Build a list of (word_position_fraction, timestamp_string) from segments
+    total_seg_words = sum(len(s.get("text", "").split()) for s in segments)
+    if total_seg_words == 0:
+        return plain_text
+
+    markers = []  # (fraction_through_video, "[MM:SS]")
+    running_words = 0
+    last_marker_time = -31.0
+
+    for seg in segments:
+        start = seg.get("start", 0)
+        seg_words = len(seg.get("text", "").split())
+        running_words += seg_words
+        fraction = running_words / total_seg_words
+
+        # Only insert a marker every ~30 seconds
+        if start - last_marker_time >= 30:
+            minutes = int(start // 60)
+            seconds = int(start % 60)
+            markers.append((fraction, f"[{minutes:02d}:{seconds:02d}]"))
+            last_marker_time = start
+
+    if not markers:
+        return plain_text
+
+    # Inject markers into the plain text at the matching word positions
+    words = plain_text.split()
+    total_words = len(words)
+    result = []
+    marker_idx = 0
+
+    for i, word in enumerate(words):
+        # Check if we should insert the next marker here
+        while marker_idx < len(markers):
+            frac, marker = markers[marker_idx]
+            if i >= int(frac * total_words):
+                result.append(marker)
+                marker_idx += 1
+            else:
+                break
+        result.append(word)
+
+    return " ".join(result)
+
+
+def get_youtube_transcript(video_id: str) -> tuple[str, float]:
+    """
+    Fetch transcript with a reliability-first strategy that still gets
+    real timestamps whenever possible.
+
+    Strategy:
+      1. Supadata PRIMARY — reliable on Streamlit Cloud, plain text only.
+      2. Scraping TIMESTAMP LAYER — attempted silently alongside Supadata.
+         If it works, timestamps from the scraping segments are injected
+         into the Supadata text at approximate word positions.
+         If scraping is rate-limited (which happens after 2-3 requests on
+         shared servers), the Supadata transcript is returned as-is.
+      3. YouTube Data API v3 FALLBACK — if Supadata also fails.
+      4. Scraping FULL FALLBACK — last resort if both above fail.
+
+    This means:
+      - Reliability comes from Supadata (no IP-based rate limits)
+      - Timestamps appear when scraping works (local dev, first daily uses)
+      - When scraping is blocked, transcript is still complete — just no timestamps
+      - The AI is told explicitly whether timestamps exist (no hallucination)
     """
     print(f"  🎬 Fetching transcript for: {video_id}")
 
-    result = _fetch_via_youtube_api(video_id)
-    if result:
-        text, duration = result
-        print(f"  📝 {len(text.split()):,} words | ~{duration:.1f} min video")
+    # ── Step 1: Get reliable transcript from Supadata ────────────────────────
+    supadata_result = _fetch_via_supadata(video_id)
+
+    if supadata_result:
+        plain_text, duration = supadata_result
+
+        # ── Step 2: Silently try scraping just for timestamps ────────────────
+        # This is a best-effort attempt. If it fails, we don't care —
+        # Supadata already gave us the complete transcript.
+        try:
+            raw_segments = YouTubeTranscriptApi().fetch(video_id).to_raw_data()
+            if raw_segments:
+                enriched_text = _inject_timestamps_into_plain_text(plain_text, raw_segments)
+                has_ts = "[" in enriched_text and ":" in enriched_text
+                label  = "✅ Supadata + timestamps injected" if has_ts else "✅ Supadata (no timestamps)"
+                print(f"  📝 {len(enriched_text.split()):,} words | ~{duration:.1f} min | {label}")
+                return enriched_text, duration
+        except Exception:
+            # Scraping blocked or failed — fine, continue with plain text
+            pass
+
+        print(f"  📝 {len(plain_text.split()):,} words | ~{duration:.1f} min | ⚠️ no timestamps (scraping blocked)")
+        return plain_text, duration
+
+    # ── Step 3: YouTube Data API v3 ──────────────────────────────────────────
+    print("  🔄 Supadata failed, trying YouTube Data API v3...")
+    yt_result = _fetch_via_youtube_api(video_id)
+    if yt_result:
+        text, duration = yt_result
+        print(f"  📝 {len(text.split()):,} words | ~{duration:.1f} min | ⚠️ no timestamps")
         return text, duration
 
-    print("  🔄 Trying Supadata...")
-    result = _fetch_via_supadata(video_id)
-    if result:
-        text, duration = result
-        print(f"  📝 {len(text.split()):,} words | ~{duration:.1f} min video")
-        return text, duration
-
-    print("  🔄 Trying direct scraping...")
-    result = _fetch_via_scraping(video_id)
-    if result:
-        text, duration = result
-        print(f"  📝 {len(text.split()):,} words | ~{duration:.1f} min video")
+    # ── Step 4: Scraping full fallback ───────────────────────────────────────
+    print("  🔄 Trying direct scraping as last resort...")
+    scrape_result = _fetch_via_scraping(video_id)
+    if scrape_result:
+        text, duration = scrape_result
+        print(f"  📝 {len(text.split()):,} words | ~{duration:.1f} min | ✅ timestamps (scraping worked)")
         return text, duration
 
     raise Exception(
@@ -262,17 +387,20 @@ def get_youtube_transcript(video_id: str) -> tuple:
 
 
 def get_transcript_source_info() -> str:
-    """Returns which methods are configured — shown in Settings page."""
-    methods = []
-    if get_youtube_api_key():
-        methods.append("YouTube API v3")
+    """
+    Returns a human-readable description of which transcript sources are configured.
+    Shown in the YouTube Mode UI so users know what's available.
+    """
+    parts = []
     if get_supadata_api_key():
-        methods.append("Supadata")
-    methods.append("Direct scraping")
-    return " → ".join(methods)
+        parts.append("Supadata (primary)")
+    if get_youtube_api_key():
+        parts.append("YouTube API v3 (fallback)")
+    parts.append("Scraping (timestamps + last resort)")
+    return " · ".join(parts)
 
 
-# ─── CLI Version ──────────────────────────────────────────────────────────────
+# ─── CLI ──────────────────────────────────────────────────────────────────────
 
 def print_youtube_results(insights, processing_time, duration_minutes):
     print("\n" + "═" * 65)
@@ -281,19 +409,21 @@ def print_youtube_results(insights, processing_time, duration_minutes):
     print(f"  📌 Title     : {insights.title}")
     print(f"  ⚡ Processed : {processing_time:.1f}s for ~{duration_minutes:.0f}min of video")
     print("─" * 65)
-    print(f"  💡 {insights.summary[:130]}")
-    print("─" * 65)
-    print("  📚 Topics Covered:")
-    for t in insights.topics_covered:
-        print(f"    • {t}")
-    print("─" * 65)
-    print("  🔑 Key Takeaways:")
-    for i, t in enumerate(insights.key_takeaways, 1):
-        print(f"    {i}. {t}")
-    print("─" * 65)
-    print("  ✅ Action Items:")
-    for a in insights.action_items:
-        print(f"    → {a}")
+
+    if hasattr(insights, 'core_concept'):
+        # StudyNotes
+        print(f"  📐 Core Concept: {insights.core_concept}")
+        print(f"  📋 Formulas    : {len(insights.formula_sheet)}")
+        print(f"  ⚡ Key Facts   : {len(insights.key_facts)}")
+        print(f"  🧪 Self-Test   : {len(insights.self_test)} questions")
+    elif hasattr(insights, 'watch_or_skip'):
+        # WorkBrief
+        print(f"  📺 Verdict     : {insights.watch_or_skip}")
+        print(f"  🛠️  Tools       : {', '.join(insights.tools_mentioned[:5])}")
+        print(f"  💡 Key Points  : {len(insights.key_points)}")
+    else:
+        # VideoInsights (Quick)
+        print(f"  💡 {insights.summary[:130]}")
     print("═" * 65)
 
 
@@ -306,11 +436,12 @@ def run_youtube_mode():
     url_input = input("  Paste YouTube URL or video ID: ").strip()
     video_id  = extract_video_id(url_input)
 
-    print("\n  What do you want to extract?")
-    print("  [1] Key insights + takeaways")
-    print("  [2] Action items + tasks")
-    print("  [3] Both")
-    extract_choice = input("\n  Enter choice (1/2/3): ").strip()
+    print("\n  Output mode?")
+    print("  [1] Study Mode  — technical depth, formulas, self-test")
+    print("  [2] Work Mode   — professional brief, tools, decisions")
+    print("  [3] Quick Mode  — conversational summary")
+    mode_choice = input("\n  Enter choice (1/2/3): ").strip()
+    mode = {"1": "study", "2": "work", "3": "quick"}.get(mode_choice, "quick")
 
     try:
         transcript, duration = get_youtube_transcript(video_id)
@@ -319,41 +450,22 @@ def run_youtube_mode():
         return
 
     start_time = time.time()
-    print("\n🤖 Running AI extraction...")
+    print(f"\n🤖 Running AI extraction in {mode} mode...")
+    print(f"   Transcript: {len(transcript.split()):,} words (~{duration:.0f} min video)")
 
-    insights  = None
-    task_list = None
+    insights = extract_video_insights(transcript, mode=mode, duration_minutes=duration)
+    proc_time = time.time() - start_time
 
-    if extract_choice in ("1", "3"):
-        insights = extract_video_insights(transcript)
-
-    if extract_choice in ("2", "3"):
-        raw_tasks = extract_tasks(transcript)
-        task_list = deduplicate_tasks(raw_tasks)
-
-    if extract_choice == "2" and task_list:
-        from models import VideoInsights
-        insights = VideoInsights(
-            title=f"Video {video_id}",
-            summary="Task extraction mode — see tasks database.",
-            key_takeaways=[], topics_covered=[], action_items=[]
-        )
-
-    processing_time = time.time() - start_time
-
-    if insights and extract_choice != "2":
-        print_youtube_results(insights, processing_time, duration)
-
-    if task_list:
-        accuracy = calculate_accuracy(task_list)
-        print(f"\n  📝 {len(task_list.items)} tasks extracted | Accuracy: {accuracy}%")
-        priority_order = {"High": 0, "Medium": 1, "Low": 2}
-        sorted_tasks = sorted(task_list.items, key=lambda x: priority_order.get(x.priority, 1))
-        for i, item in enumerate(sorted_tasks, 1):
-            print(f"    {i}. [{item.priority}] {item.assignee} — {item.task[:50]}")
+    print_youtube_results(insights, proc_time, duration)
 
     push = input("\n  Push to Notion? (y/n): ").strip().lower()
     if push == "y":
-        push_youtube(insights, url_input, task_list)
+        from push_to_notion import push_study_notes, push_work_brief, push_youtube
+        if mode == "study":
+            push_study_notes(insights, url_input)
+        elif mode == "work":
+            push_work_brief(insights, url_input)
+        else:
+            push_youtube(insights, url_input)
     else:
         print("  Skipped Notion push.")
