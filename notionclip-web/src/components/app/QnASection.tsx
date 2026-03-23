@@ -1,16 +1,16 @@
 "use client"
 import { useState, useRef, useEffect } from 'react'
 import { useAppStore } from '@/lib/store'
-import { api } from '@/lib/api'
 import { Send } from 'lucide-react'
 
 interface Message {
   role: 'user' | 'assistant'
   content: string
+  notionEdited?: boolean
 }
 
 export function QnASection() {
-  const { mode, transcript } = useAppStore()
+  const { mode, transcript, notionPageId, sessionId } = useAppStore()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [error, setError] = useState("")
@@ -27,38 +27,37 @@ export function QnASection() {
   if (!transcript) return null
 
   const handleSend = async (text: string) => {
-    if (!text.trim()) return
-    const newMessages = [...messages, { role: 'user', content: text } as Message]
+    const trimmed = text.trim()
+    if (!trimmed) return
+    const newMessages = [...messages, { role: 'user', content: trimmed } as Message]
     setMessages(newMessages)
     setInput("")
     setError("")
 
     try {
-      const history = newMessages.slice(-6).map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`).join('\n')
-      const contextualQuestion = `You are a knowledgeable assistant who has fully watched and understood a YouTube video. 
-You have complete context of everything discussed in the video — the topic, arguments made, 
-people mentioned, events described, data cited, and conclusions drawn.
-
-When a user asks something, first check if it relates to the video content directly or indirectly. 
-Most questions — even ones that seem broad — are usually connected to what the video covered. 
-Answer them generously using the video as your primary source, enriched with your own knowledge 
-where it adds value.
-
-Only if a question is completely unrelated to the video's subject matter — with zero connection 
-to its topic, themes, or context — politely let the user know that the video does not cover that, 
-and offer to answer from general knowledge if you can help.
-
-Never be robotic or dismissive. Always try to be genuinely useful.
-
-Transcript of the video:
-${transcript}
-
-Recent chat (last 6 messages):
-${history}
-
-User question: ${text}`
-      const answer = await api.askChat(contextualQuestion, transcript, mode, 'strict', newMessages)
-      setMessages([...newMessages, { role: 'assistant', content: answer }])
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: trimmed,
+          transcript,
+          mode,
+          chat_history: newMessages,
+          notion_page_id: notionPageId,
+          session_id: sessionId
+        })
+      })
+      if (!res.ok) {
+        const errorBody = await res.text()
+        throw new Error(errorBody || "Failed to get response.")
+      }
+      const data = await res.json()
+      let answer: string = data.answer || ""
+      const notionEdited = answer.startsWith("[NOTION_EDITED]")
+      if (notionEdited) {
+        answer = answer.replace("[NOTION_EDITED]", "").trim()
+      }
+      setMessages([...newMessages, { role: 'assistant', content: answer, notionEdited }])
     } catch (err: any) {
       setError(err?.message || "Failed to get response.")
     }
@@ -79,7 +78,12 @@ User question: ${text}`
                   : 'text-white/70 pl-3 border-l-2 border-purple-500/30'
               }`}
             >
-              {msg.content}
+              <span>{msg.content}</span>
+              {msg.notionEdited && (
+                <span className="ml-2 inline-flex items-center text-green-400 text-xs font-semibold">
+                  ✓ Notion updated
+                </span>
+              )}
             </div>
           ))}
           <div ref={messagesEndRef} />

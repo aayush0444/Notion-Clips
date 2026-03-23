@@ -39,6 +39,7 @@ export interface TranscriptResponse {
 export interface ExtractResponse {
   mode: Mode
   word_count: number
+  duration_minutes?: number | null
   insights: Insights
 }
 

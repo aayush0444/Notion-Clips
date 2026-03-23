@@ -8,6 +8,8 @@ interface AppState {
   isConnected: boolean
   setIsConnected: (val: boolean) => void
   disconnectNotion: () => void
+  notionPageId: string | null
+  setNotionPageId: (val: string | null) => void
   url: string
   setUrl: (val: string) => void
   videoId: string | null
@@ -20,6 +22,8 @@ interface AppState {
   setTranscript: (val: string | null) => void
   processingTime: number | null
   setProcessingTime: (val: number | null) => void
+  duration: number | null
+  setDuration: (val: number | null) => void
   wordCount: number | null
   setWordCount: (val: number | null) => void
   reset: () => void
@@ -30,12 +34,14 @@ const AppContext = createContext<AppState | undefined>(undefined)
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [isConnected, setIsConnected] = useState(false)
+  const [notionPageId, setNotionPageId] = useState<string | null>(null)
   const [url, setUrl] = useState("")
   const [videoId, setVideoId] = useState<string | null>(null)
   const [mode, setMode] = useState<Mode>('study')
   const [results, setResults] = useState<any | null>(null)
   const [transcript, setTranscript] = useState<string | null>(null)
   const [processingTime, setProcessingTime] = useState<number | null>(null)
+  const [duration, setDuration] = useState<number | null>(null)
   const [wordCount, setWordCount] = useState<number | null>(null)
 
   useEffect(() => {
@@ -76,15 +82,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setResults(null)
     setTranscript(null)
     setProcessingTime(null)
+    setDuration(null)
     setWordCount(null)
   }
 
   return (
     <AppContext.Provider value={{
       sessionId, isConnected, setIsConnected, disconnectNotion,
+      notionPageId, setNotionPageId,
       url, setUrl, videoId, setVideoId,
       mode, setMode, results, setResults,
       transcript, setTranscript, processingTime, setProcessingTime,
+      duration, setDuration,
       wordCount, setWordCount, reset
     }}>
       {children}

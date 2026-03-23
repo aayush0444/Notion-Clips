@@ -9,7 +9,7 @@ type ProcessButtonProps = {
 }
 
 export function ProcessButton({ onProcessingChange }: ProcessButtonProps) {
-  const { url, videoId, mode, setResults, setTranscript, setProcessingTime, setWordCount } = useAppStore()
+  const { url, videoId, mode, setResults, setTranscript, setProcessingTime, setWordCount, setDuration } = useAppStore()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
@@ -26,10 +26,14 @@ export function ProcessButton({ onProcessingChange }: ProcessButtonProps) {
     
     try {
       const start = Date.now()
-      const { transcript } = await api.getTranscript(videoId)
+      const { transcript, duration_minutes } = await api.getTranscript(videoId)
       setTranscript(transcript)
+      setDuration(duration_minutes || null)
 
       const extractRes = await api.extractInsights(transcript, mode)
+      if (typeof extractRes.duration_minutes === "number" && extractRes.duration_minutes > 0) {
+        setDuration(extractRes.duration_minutes)
+      }
       
       const totalTime = Date.now() - start
       setProcessingTime(totalTime)

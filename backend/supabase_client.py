@@ -29,13 +29,23 @@ def _get_client() -> Client:
     return _client
 
 
-def save_session(session_id: str, token: str, page_id: str) -> Dict[str, Any]:
+def save_session(
+    session_id: str,
+    token: str,
+    page_id: str,
+    study_page_id: str,
+    work_page_id: str,
+    quick_page_id: str,
+) -> Dict[str, Any]:
     """Insert or upsert a session row."""
     client = _get_client()
     payload = {
         "session_id": session_id,
         "notion_token": token,
         "notion_page_id": page_id,
+        "study_page_id": study_page_id,
+        "work_page_id": work_page_id,
+        "quick_page_id": quick_page_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     response = (

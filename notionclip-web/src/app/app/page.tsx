@@ -59,7 +59,7 @@ function LoadingPanel({ step }: { step: number }) {
 }
 
 export default function AppPage() {
-  const { results, mode, url, sessionId, isConnected } = useAppStore()
+  const { results, mode, url, sessionId, isConnected, setNotionPageId } = useAppStore()
   const [pushing, setPushing] = useState(false)
   const [pushError, setPushError] = useState("")
   const [leftWidth, setLeftWidth] = useState(400)
@@ -108,7 +108,8 @@ export default function AppPage() {
     setPushing(true)
     setPushError("")
     try {
-      await api.pushToNotion(mode, results, url, sessionId)
+      const res = await api.pushToNotion(mode, results, url, sessionId)
+      setNotionPageId(res.page_id)
     } catch (err: any) {
       setPushError(err?.message || "Failed to push to Notion")
     } finally {

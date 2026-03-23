@@ -41,9 +41,9 @@ export function ModeSelector() {
         })}
       </div>
       <div className="mt-3 text-xs text-white/40 leading-relaxed">
-        {mode === 'study' && 'Extracts formulas, key facts, and self-test questions from lectures'}
-        {mode === 'work' && 'Generates watch/skip verdict, tools mentioned, and action items'}
-        {mode === 'quick' && 'Provides a concise summary and key takeaways'}
+        {mode === 'study' && 'Build deep study notes with core concepts, formulas, and exam-ready revision prompts.'}
+        {mode === 'work' && 'Get a practical work brief with a clear verdict, decisions, and next actions.'}
+        {mode === 'quick' && 'Capture the fastest high-signal summary with takeaways and useful follow-ups.'}
       </div>
     </div>
   )
