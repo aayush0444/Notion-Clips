@@ -24,8 +24,9 @@
     content: '';
     position: fixed;
     inset: 0;
-    background-image: radial-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-    background-size: 32px 32px;
+    background-image: radial-gradient(circle, rgba(255, 255, 255, 0.15) 1px, transparent 1px);
+    background-size: 24px 24px;
+    opacity: 0.15;
     pointer-events: none;
     z-index: 0;
   }
@@ -34,5 +35,9 @@
 @layer utilities {
   .bg-gradient-primary {
     background: linear-gradient(135deg, #60A5FA, #A78BFA);
+  }
+
+  .glass-panel {
+    @apply bg-white/5 border border-white/10 rounded-lg backdrop-blur-md;
   }
 }

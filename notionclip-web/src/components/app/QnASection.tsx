@@ -2,9 +2,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useAppStore } from '@/lib/store'
 import { api } from '@/lib/api'
-import { Button } from '@/components/ui/Button'
-import { cn } from '@/lib/utils'
-import { Send, Trash } from 'lucide-react'
+import { Send } from 'lucide-react'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -13,130 +11,104 @@ interface Message {
 
 export function QnASection() {
   const { mode, transcript } = useAppStore()
-  const [chatMode, setChatMode] = useState<'strict'|'open'>('strict')
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
-  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, loading])
+  }, [messages])
+
+  useEffect(() => {
+    console.log("Transcript length:", transcript?.length)
+  }, [transcript])
 
   if (!transcript) return null
 
-  const getStaterChips = () => {
-    if (mode === 'study') return ["Explain the core concept simply", "Give me three harder exam questions", "What formula should I focus on?"]
-    if (mode === 'work') return ["What did they recommend and why?", "What should my team act on?", "Summarize the conclusion"]
-    return ["What was the most surprising point?", "Give me the one-sentence version"]
-  }
-
   const handleSend = async (text: string) => {
-    if (!text.trim() || loading) return
+    if (!text.trim()) return
     const newMessages = [...messages, { role: 'user', content: text } as Message]
     setMessages(newMessages)
     setInput("")
-    setLoading(true)
+    setError("")
 
     try {
-      const answer = await api.askChat(text, transcript, mode, chatMode, newMessages)
+      const history = newMessages.slice(-6).map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`).join('\n')
+      const contextualQuestion = `You are a knowledgeable assistant who has fully watched and understood a YouTube video. 
+You have complete context of everything discussed in the video — the topic, arguments made, 
+people mentioned, events described, data cited, and conclusions drawn.
+
+When a user asks something, first check if it relates to the video content directly or indirectly. 
+Most questions — even ones that seem broad — are usually connected to what the video covered. 
+Answer them generously using the video as your primary source, enriched with your own knowledge 
+where it adds value.
+
+Only if a question is completely unrelated to the video's subject matter — with zero connection 
+to its topic, themes, or context — politely let the user know that the video does not cover that, 
+and offer to answer from general knowledge if you can help.
+
+Never be robotic or dismissive. Always try to be genuinely useful.
+
+Transcript of the video:
+${transcript}
+
+Recent chat (last 6 messages):
+${history}
+
+User question: ${text}`
+      const answer = await api.askChat(contextualQuestion, transcript, mode, 'strict', newMessages)
       setMessages([...newMessages, { role: 'assistant', content: answer }])
-    } catch (err) {
-      setMessages([...newMessages, { role: 'assistant', content: "Sorry, I ran into an issue finding the answer." }])
-    } finally {
-      setLoading(false)
+    } catch (err: any) {
+      setError(err?.message || "Failed to get response.")
     }
   }
 
   return (
-    <div className="w-full max-w-3xl mx-auto mt-20 mb-32 border-t border-border/50 pt-16">
-      <h2 className="font-display text-2xl font-bold text-white mb-6 text-center">Ask About This Video</h2>
+    <div className="border-t border-white/5 pt-6 mt-6">
+      <div className="text-xs text-white/40 mb-3 uppercase tracking-wider">Ask Follow-up Questions</div>
       
-      <div className="bg-white/[0.02] border border-border rounded-2xl flex flex-col h-[600px] overflow-hidden backdrop-blur-md relative">
-        {/* Top Toggle */}
-        <div className="p-4 border-b border-border bg-black/20 flex flex-col items-center shrink-0">
-          <div className="flex bg-white/5 p-1 rounded-full border border-white/10 mb-2">
-            <button 
-              onClick={() => setChatMode('strict')}
-              className={cn("px-4 py-2 rounded-full text-sm font-semibold transition-all outline-none", chatMode === 'strict' ? "bg-gradient-primary text-white" : "text-muted hover:text-white")}
+      {messages.length > 0 && (
+        <div className="mb-4 space-y-3 max-h-[200px] overflow-y-auto">
+          {messages.map((msg, i) => (
+            <div
+              key={i}
+              className={`text-sm ${
+                msg.role === 'user'
+                  ? 'text-white/90 bg-white/5 border border-white/10 rounded-lg px-3 py-2'
+                  : 'text-white/70 pl-3 border-l-2 border-purple-500/30'
+              }`}
             >
-              From this video
-            </button>
-            <button 
-              onClick={() => setChatMode('open')}
-              className={cn("px-4 py-2 rounded-full text-sm font-semibold transition-all outline-none", chatMode === 'open' ? "bg-gradient-primary text-white" : "text-muted hover:text-white")}
-            >
-              Topic chat
-            </button>
-          </div>
-          <p className="text-xs text-muted">
-            {chatMode === 'strict' ? "Answers come only from this video's transcript." : "Can go deeper. Extra knowledge is labelled [Beyond the video:]"}
-          </p>
-        </div>
-
-        {/* Chat Area */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {messages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center space-y-3 opacity-80">
-              {getStaterChips().map((chip, i) => (
-                <button 
-                  key={i} 
-                  onClick={() => handleSend(chip)}
-                  className="bg-white/5 hover:bg-white/10 border border-white/10 text-white/80 py-2 px-5 rounded-full text-sm transition-colors outline-none"
-                >
-                  {chip}
-                </button>
-              ))}
+              {msg.content}
             </div>
-          ) : (
-            messages.map((m, i) => (
-              <div key={i} className={cn("flex w-full", m.role === 'user' ? "justify-end" : "justify-start")}>
-                <div className={cn(
-                  "max-w-[80%] rounded-2xl px-5 py-3 text-sm leading-relaxed",
-                  m.role === 'user' ? "bg-gradient-primary text-white" : "bg-white/5 border border-white/10 text-white/90"
-                )}>
-                  {m.content}
-                </div>
-              </div>
-            ))
-          )}
-          {loading && (
-            <div className="flex w-full justify-start">
-              <div className="bg-white/5 border border-white/10 rounded-2xl px-5 py-3 text-sm text-muted animate-pulse">
-                Thinking...
-              </div>
-            </div>
-          )}
+          ))}
           <div ref={messagesEndRef} />
         </div>
+      )}
 
-        {/* Input Area */}
-        <div className="p-4 border-t border-border bg-black/20 shrink-0">
-          <form onSubmit={e => { e.preventDefault(); handleSend(input); }} className="relative flex items-center">
-            <input
-              type="text"
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              placeholder="Ask a question..."
-              className="w-full bg-black/50 border border-white/10 rounded-xl py-4 pl-4 pr-24 text-white text-sm focus:outline-none focus:border-primary/50 transition-colors"
-            />
-            <Button 
-              type="submit" 
-              variant="gradient" 
-              size="sm" 
-              className="absolute right-2 px-4 rounded-lg"
-              disabled={loading || !input.trim()}
-            >
-              Ask <Send className="w-3 h-3 ml-2" />
-            </Button>
-          </form>
-          {messages.length > 0 && (
-            <button onClick={() => setMessages([])} className="mt-3 text-xs text-muted hover:text-white flex items-center justify-center w-full transition-colors outline-none">
-              <Trash className="w-3 h-3 mr-1" /> Clear conversation
-            </button>
-          )}
-        </div>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              handleSend(input)
+            }
+          }}
+          placeholder="Ask about the video content..."
+          className="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white/90 placeholder:text-white/30 focus:outline-none focus:border-white/20 focus:bg-white/[0.07] transition-colors"
+        />
+        <button
+          onClick={() => handleSend(input)}
+          disabled={!input.trim()}
+          className="px-4 py-2.5 bg-white/10 hover:bg-white/15 disabled:opacity-40 disabled:cursor-not-allowed border border-white/10 rounded-lg transition-all"
+        >
+          <Send className="w-4 h-4 text-white/70" />
+        </button>
       </div>
+      {error && <p className="mt-3 text-sm text-danger">{error}</p>}
     </div>
   )
 }

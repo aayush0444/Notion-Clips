@@ -41,7 +41,7 @@ export const api = {
     const res = await fetch(`/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question, transcript, mode, chat_mode: chatMode, history })
+      body: JSON.stringify({ question, transcript, mode, chat_mode: chatMode, chat_history: history })
     })
     if (!res.ok) throw new Error("Failed to get chat response")
     const data = await res.json()
