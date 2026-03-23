@@ -3,7 +3,7 @@
 import { useAppStore } from "@/lib/store"
 
 export function MetricStrip() {
-  const { results, mode, processingTime, wordCount } = useAppStore()
+  const { results, mode, processingTime, wordCount, duration } = useAppStore()
   if (!results) return null
 
   const keyPoints =
@@ -13,9 +13,11 @@ export function MetricStrip() {
         ? results.key_points?.length || 0
         : results.key_takeaways?.length || 0
 
+  const durationLabel = duration && duration > 0 ? `${Math.round(duration)} min` : "—"
+
   const stats = [
     { label: "Processing Time", value: processingTime ? `${(processingTime / 1000).toFixed(1)}s` : "0s" },
-    { label: "Video Length", value: "Real-time" },
+    { label: "Video Length", value: durationLabel },
     { label: "Word Count", value: wordCount ? wordCount.toLocaleString() : "0" },
     { label: "Key Points", value: `${keyPoints}` },
   ]

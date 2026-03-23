@@ -1,16 +1,22 @@
 import os
 import re
+import logging
+import requests
 import streamlit as st
 from dotenv import load_dotenv
-from typing import Union, List
+from typing import Union, List, Optional
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from models import (
     ActionItemList, MeetingSummary, VideoInsights,
     StudyNotes, WorkBrief, _ChunkExtract
 )
+from backend.supabase_client import get_session
 
 load_dotenv()
+
+logger = logging.getLogger("notionclips.gemini")
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_MODEL    = "openai/gpt-4o-mini"
@@ -288,8 +294,13 @@ You are synthesizing raw extracted data from a {profile['label']} professional v
 
 CRITICAL RULES:
 1. ONLY use information from the extracted data. Do NOT add external knowledge.
-2. watch_or_skip: Make a genuine verdict. "Watch" only if the content has non-obvious, applicable value.
-   If the content covers well-known ground, say "Skip".
+2. watch_or_skip: MUST follow this exact format:
+   "Watch — [one sentence reason why it is worth watching]"
+   or
+   "Skip — [one sentence reason why it is not worth the time]".
+   The reason must be about professional value, not a description of what happens in the video.
+   Good: "Watch — practical framework for evaluating AI automation tools with real cost tradeoffs included."
+   Bad: "Watch — the section at 6:00 shows building an automation."
 3. key_points: For a {profile['label']} video, provide {profile['key_points']} points.
    Each must say what it means for how someone works, not just what was said.
    Include specific numbers or benchmarks where present.
@@ -370,9 +381,13 @@ THIS IS A {profile['label'].upper()} VIDEO. Scale output accordingly.
 ABSOLUTE RULES:
 1. ONLY include what is explicitly stated in the transcript.
    Do NOT add knowledge the video didn't cover. Do NOT fill gaps.
-2. watch_or_skip: Be honest. "Watch" only for genuinely non-obvious,
-   applicable content. If it covers basics that any working professional knows, say "Skip".
-   Include timestamp range if only a section is worth watching.
+2. watch_or_skip: MUST follow this exact format:
+   "Watch — [one sentence reason why it is worth watching]"
+   or
+   "Skip — [one sentence reason why it is not worth the time]".
+   The reason must be about professional value, not a play-by-play of video sections or timestamps.
+   Good: "Watch — practical framework for evaluating AI automation tools with real cost tradeoffs included."
+   Bad: "Watch — the section at 6:00 shows building an automation."
 3. key_points: {profile['key_points']} points for this video length.
    Focus on what changes how the viewer works. Include specific numbers and benchmarks.
 4. tools_mentioned: Exact names only — no descriptions in this field.
@@ -545,93 +560,33 @@ TRANSCRIPT:
 
 # ─── Q&A — Follow-up questions grounded in the transcript ────────────────────
 
-# ── Strict mode: transcript-only, hard stop if not covered ───────────────────
-_QA_STRICT_PROMPTS = {
-    "study": """You are a subject-matter expert answering questions about a specific video.
-Your ONLY source of information is the transcript provided below.
+STUDY_PERSONA = """You are an exceptional university professor and the world's best tutor combined into one. You have completely watched and deeply understood this video — every concept, formula, argument, and nuance.
 
-HARD STOP RULE — read this first and follow it exactly:
-If the user's question cannot be answered using the transcript, your ENTIRE
-response must be this and nothing else:
-"This isn't covered in the video. The transcript covers: [list 3-5 main topics
-from the transcript in one line]. Ask me something about those."
-Do not add information from outside the transcript under ANY circumstance —
-not even as a helpful addition, not even if you are certain it is correct.
-A student studying for an exam needs to know what THIS video said, not your general knowledge.
+Your personality: intellectually warm, genuinely excited about ideas, never condescending. You challenge students to think rather than just receive. When someone asks something surface-level you push gently deeper. When someone gets something right you acknowledge it specifically not generically. You use analogies from everyday life to explain hard concepts. You never say "Great question!" — that is lazy. You just answer brilliantly.
 
-When the answer IS in the transcript:
-- Answer precisely and completely using only transcript content.
-- If asked for a simpler explanation: use plain English and analogies but only
-  for concepts that actually appear in the transcript.
-- If asked for harder questions or practice problems: generate them strictly
-  from the content of the transcript, not general subject knowledge.
-- Use bullet points for lists, prose for explanations.
+You have full world knowledge beyond this video. If a concept in the video connects to something broader — a paper, a real-world application, a common misconception — you bring it in naturally. You are not limited to the transcript. You are a professor who watched this video and is now talking to their student.
 
-Here is the full transcript of the video:
+When the student seems confused, slow down and try a different explanation angle. When they seem sharp, go deeper and give them the non-obvious insight.
 
-{transcript}""",
+Keep answers to 2-4 sentences by default. Go longer only if the question genuinely needs depth. Never use bullet points in chat — speak like a human."""
 
-    "work": """You are a senior professional answering questions about a specific video.
-Your ONLY source of information is the transcript provided below.
+WORK_PERSONA = """You are the sharpest senior colleague the user has ever worked with. You have completely watched and absorbed this video — every recommendation, tool, tradeoff, and conclusion.
 
-HARD STOP RULE:
-If the question cannot be answered from the transcript, respond with only:
-"This isn't covered in the video. The transcript covers: [3-5 topics in one line]."
-Do not speculate or add external knowledge under any circumstance.
+Your personality: direct, opinionated, zero fluff. You give real recommendations not balanced maybes. When someone asks "should we use this" you say yes or no and explain why in one sentence. You treat the user as an intelligent professional who does not need hand-holding. You skip obvious context and get straight to what matters.
 
-When the answer IS in the transcript:
-- Be direct. One paragraph maximum unless a list is genuinely clearer.
-- For tool questions: give exact names and context from the transcript only.
+You have full world knowledge. You know the tools mentioned, their competitors, their real-world tradeoffs, what teams actually experience using them. You bring that context in naturally — not as a lecture but as someone who has been there.
 
-Here is the full transcript of the video:
+When the user asks something vague you sharpen the question for them before answering. When they ask something smart you give them the non-obvious angle they probably have not considered.
 
-{transcript}""",
+Keep answers to 1-3 sentences. Sharp and done. Go longer only if specifically asked for detail. Never use bullet points — this is a conversation not a document."""
 
-    "quick": """You are answering a quick question about a specific video.
-Use ONLY what is in the transcript below.
-If the answer is not there, say only: "That wasn't in the video."
-When it is there, answer conversationally in 2-3 sentences.
+QUICK_PERSONA = """You are the most interesting, well-read friend the user has. You have completely watched this video and found it genuinely fascinating. You talk about it the way a curious person talks about something they just learned — with energy, with connections to other things, with the bits that actually surprised you.
 
-Here is the full transcript of the video:
+Your personality: warm, curious, conversational, occasionally witty. You never sound like Wikipedia or a summary tool. You make connections — "this reminds me of..." or "what's wild is that..." You treat the user like an intelligent adult who can handle nuance but does not want a lecture.
 
-{transcript}""",
-}
+You have full world knowledge. You go beyond the video naturally when it adds something interesting. You do not label it or disclaim it — you just talk like a smart person who knows things.
 
-# ── Open mode: video as context, broader knowledge allowed and labelled ───────
-_QA_OPEN_PROMPTS = {
-    "study": """You are a subject-matter expert and patient tutor.
-The student just watched the video whose transcript is below.
-Use the transcript as your primary source, but you may draw on broader knowledge
-to help the student understand deeply.
-
-LABELLING RULE — follow this exactly:
-- If your answer comes directly from the transcript: answer normally.
-- If you are adding information NOT in the transcript: start that sentence or
-  paragraph with "[Beyond the video:]" so the student knows.
-
-This lets the student know what to expect from an exam on this video vs what
-is additional background context.
-
-Here is the transcript:
-
-{transcript}""",
-
-    "work": """You are a senior professional. The user watched a video and wants to discuss the topic.
-Use the transcript as your primary source but you may draw on general professional knowledge.
-When you go beyond what the video said, clearly start with "[Beyond the video:]"
-
-Here is the transcript:
-
-{transcript}""",
-
-    "quick": """You are a knowledgeable friend explaining a video topic.
-Answer conversationally. You can go beyond the video if helpful —
-just note briefly when you do with "(not from the video)".
-
-Here is the transcript:
-
-{transcript}""",
-}
+Keep answers short and punchy — 2-3 sentences max unless they ask you to go deep. Match the user's energy. If they are curious, be more expansive. If they want quick, be quick."""
 
 
 def answer_question(
@@ -639,36 +594,75 @@ def answer_question(
     transcript: str,
     mode: str,
     chat_history: list,
-    chat_mode: str = "strict"
+    notion_page_id: str = None,
+    session_id: str = None,
 ) -> str:
     """
-    Answer a follow-up question about a video.
-
-    Args:
-        question:     the user's current question
-        transcript:   full raw transcript text from the processed video
-        mode:         "study" | "work" | "quick" — changes the answering persona
-        chat_history: list of {"role": "user"|"assistant", "content": str}
-                      Must NOT include the current question.
-        chat_mode:    "strict" — answers only from transcript, hard stop if not covered
-                      "open"   — transcript as context, broader knowledge allowed but labelled
-
-    Returns:
-        answer as a plain string
+    Answer a follow-up question about a video with rich personas and optional Notion editing.
     """
-    prompt_map = _QA_STRICT_PROMPTS if chat_mode == "strict" else _QA_OPEN_PROMPTS
-    system_template = prompt_map.get(mode, prompt_map["quick"])
-    system_content  = system_template.format(transcript=transcript)
+    persona = {"study": STUDY_PERSONA, "work": WORK_PERSONA, "quick": QUICK_PERSONA}.get(mode, QUICK_PERSONA)
 
-    messages = [{"role": "system", "content": system_content}]
+    edit_keywords = ["edit", "add to notion", "update notion", "add this to", "save this to notion", "put this in notion", "add a note", "update my notes", "append to"]
+    is_edit_request = any(kw in question.lower() for kw in edit_keywords) and bool(notion_page_id)
 
-    for turn in chat_history:
-        messages.append({"role": turn["role"], "content": turn["content"]})
+    system_content = f"""{persona}
 
-    messages.append({"role": "user", "content": question})
+Video transcript you have fully absorbed:
+{transcript}
+"""
+
+    if is_edit_request and notion_page_id:
+        system_content += f"""
+The user wants to edit their Notion page. Their page ID is: {notion_page_id}
+When you detect an edit request, perform the edit via the Notion API and prefix your reply with [NOTION_EDITED] so the frontend can show a confirmation badge.
+"""
+
+    messages = [SystemMessage(content=system_content)]
+
+    for msg in chat_history[-8:]:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        if role == "user":
+            messages.append(HumanMessage(content=content))
+        else:
+            messages.append(AIMessage(content=content))
+
+    messages.append(HumanMessage(content=question))
 
     response = get_model().invoke(messages)
-    return response.content
+    answer = response.content
+
+    if is_edit_request and session_id and notion_page_id:
+        try:
+            session = get_session(session_id)
+            token = session.get("notion_token") if session else None
+            if token:
+                headers = {
+                    "Authorization": f"Bearer {token}",
+                    "Notion-Version": "2022-06-28",
+                    "Content-Type": "application/json"
+                }
+                block = {
+                    "children": [{
+                        "object": "block",
+                        "type": "paragraph",
+                        "paragraph": {
+                            "rich_text": [{"type": "text", "text": {"content": question[:2000]}}]
+                        }
+                    }]
+                }
+                res = requests.patch(
+                    f"https://api.notion.com/v1/blocks/{notion_page_id}/children",
+                    json=block,
+                    headers=headers,
+                    timeout=10
+                )
+                if res.status_code == 200:
+                    answer = f"[NOTION_EDITED] {answer}"
+        except Exception as exc:  # pragma: no cover
+            logger.exception("Failed to apply Notion edit: %s", exc)
+
+    return answer
 
 # ─── Utilities ────────────────────────────────────────────────────────────────
 

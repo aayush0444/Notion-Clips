@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from typing import Any, Dict, List, Literal, Optional
+import requests
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -77,12 +78,22 @@ class QARequest(BaseModel):
         default_factory=list,
         description="Prior chat messages for conversational context.",
     )
+    notion_page_id: Optional[str] = None
+    session_id: Optional[str] = None
 
 
 class QAResponse(BaseModel):
     """Response payload for /qa endpoint."""
 
     answer: str
+
+
+class NotionEditRequest(BaseModel):
+    """Request payload for /notion/edit endpoint."""
+
+    page_id: str
+    instruction: str
+    session_id: str
 
 
 class PushRequest(BaseModel):
@@ -196,7 +207,7 @@ async def extract_insights(payload: ExtractRequest) -> ExtractResponse:
 
 
 def _resolve_notion_credentials(
-    token: Optional[str], page_id: Optional[str], session_id: Optional[str]
+    token: Optional[str], page_id: Optional[str], session_id: Optional[str], mode: str
 ) -> Dict[str, Optional[str]]:
     """Resolve Notion credentials from direct payload or Supabase session."""
     resolved_token = token
@@ -206,7 +217,17 @@ def _resolve_notion_credentials(
         session = get_session(session_id)
         if session:
             resolved_token = resolved_token or session.get("notion_token")
-            resolved_page_id = resolved_page_id or session.get("notion_page_id")
+
+            if not resolved_page_id:
+                if mode == "study":
+                    resolved_page_id = session.get("study_page_id")
+                elif mode == "work":
+                    resolved_page_id = session.get("work_page_id")
+                elif mode == "quick":
+                    resolved_page_id = session.get("quick_page_id")
+
+            if not resolved_page_id:
+                resolved_page_id = session.get("notion_page_id")
 
     if not resolved_page_id:
         resolved_page_id = os.getenv("NOTION_PAGE_ID")
@@ -235,7 +256,7 @@ def _build_tasks(payload: Optional[Dict[str, Any]]) -> Optional[ActionItemList]:
 async def push_to_notion_endpoint(payload: PushRequest) -> PushResponse:
     """Push extracted insights to Notion using either supplied or session-based credentials."""
     creds = _resolve_notion_credentials(
-        payload.notion_token, payload.notion_page_id, payload.session_id
+        payload.notion_token, payload.notion_page_id, payload.session_id, payload.mode
     )
 
     if not creds["token"] or not creds["page_id"]:
@@ -298,10 +319,44 @@ async def answer_question_endpoint(payload: QARequest) -> QAResponse:
             transcript=transcript,
             mode=payload.mode,
             chat_history=payload.chat_history,
-            chat_mode=payload.chat_mode,
+            notion_page_id=payload.notion_page_id,
+            session_id=payload.session_id,
         )
     except Exception as exc:  # pragma: no cover
         logger.exception("Q&A generation failed")
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return QAResponse(answer=answer)
+
+
+@app.post("/notion/edit")
+async def notion_edit(payload: NotionEditRequest):
+    """Append a paragraph block to an existing Notion page."""
+    session = get_session(payload.session_id)
+    if not session or not session.get("notion_token"):
+        raise HTTPException(status_code=401, detail="No Notion token for this session")
+
+    token = session["notion_token"]
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Notion-Version": "2022-06-28",
+        "Content-Type": "application/json"
+    }
+    block = {
+        "children": [{
+            "object": "block",
+            "type": "paragraph",
+            "paragraph": {
+                "rich_text": [{"type": "text", "text": {"content": payload.instruction[:2000]}}]
+            }
+        }]
+    }
+    res = requests.patch(
+        f"https://api.notion.com/v1/blocks/{payload.page_id}/children",
+        json=block,
+        headers=headers,
+        timeout=10
+    )
+    if res.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Notion edit failed: {res.text}")
+    return {"status": "ok"}

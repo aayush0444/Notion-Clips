@@ -6,6 +6,7 @@ import base64
 import json
 import os
 import secrets
+import logging
 from typing import Dict, Optional
 
 import requests
@@ -17,6 +18,8 @@ from pydantic import BaseModel
 from backend.supabase_client import get_session, save_session
 
 load_dotenv()
+
+logger = logging.getLogger("notionclips.notion_oauth")
 
 NOTION_CLIENT_ID     = os.getenv("NOTION_CLIENT_ID")
 NOTION_CLIENT_SECRET = os.getenv("NOTION_CLIENT_SECRET")
@@ -151,7 +154,64 @@ def oauth_callback(
             detail="Notion response missing access_token.",
         )
 
-    save_session(session_id, access_token, notion_page_id or "")
+    root_page_id = ""
+    study_page_id = ""
+    work_page_id = ""
+    quick_page_id = ""
+
+    page_headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Notion-Version": "2022-06-28",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        root_payload = {
+            "parent": {"type": "workspace", "workspace": True},
+            "icon": {"type": "emoji", "emoji": "🧠"},
+            "properties": {
+                "title": [{"type": "text", "text": {"content": "NotionClip Notes"}}]
+            },
+        }
+        root_resp = requests.post(
+            "https://api.notion.com/v1/pages",
+            headers=page_headers,
+            json=root_payload,
+            timeout=15,
+        )
+        root_resp.raise_for_status()
+        root_page_id = root_resp.json().get("id", "")
+    except Exception as exc:  # pragma: no cover
+        logger.exception("Failed to create root NotionClip Notes page: %s", exc)
+
+    def _create_child(title: str, emoji: str) -> str:
+        if not root_page_id:
+            return ""
+        try:
+            child_payload = {
+                "parent": {"type": "page_id", "page_id": root_page_id},
+                "icon": {"type": "emoji", "emoji": emoji},
+                "properties": {
+                    "title": [{"type": "text", "text": {"content": title}}]
+                },
+            }
+            child_resp = requests.post(
+                "https://api.notion.com/v1/pages",
+                headers=page_headers,
+                json=child_payload,
+                timeout=15,
+            )
+            child_resp.raise_for_status()
+            return child_resp.json().get("id", "") or ""
+        except Exception as exc:  # pragma: no cover
+            logger.exception("Failed to create child page %s: %s", title, exc)
+            return ""
+
+    study_page_id = _create_child("Study Notes", "📚")
+    work_page_id = _create_child("Work Briefs", "💼")
+    quick_page_id = _create_child("Quick Saves", "⚡")
+
+    save_session(session_id, access_token, root_page_id, study_page_id, work_page_id, quick_page_id)
 
     # Redirect back to frontend — store.tsx detects ?connected=true
     # and sets isConnected=true automatically

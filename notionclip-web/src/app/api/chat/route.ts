@@ -5,34 +5,17 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://notion-clips-produc
 export async function POST(req: Request) {
   try {
     const body = await req.json()
-    const { question, transcript, chat_history } = body
-
-    const historyText = (chat_history || [])
-      .slice(-6)
-      .map((m: { role: string; content: string }) =>
-        `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
-      )
-      .join('\n')
-
-    const context = `You are a helpful assistant that answers questions about a YouTube video.
-Use the transcript below as your primary source. If the answer is not in the transcript, say so briefly then answer from general knowledge if you can.
-Be concise. Answer in 2-4 sentences unless more is genuinely needed.
-
-${historyText ? `Conversation so far:\n${historyText}\n` : ''}
-Question: ${question}
-
-Transcript:
-${transcript}`
-
-    const res = await fetch(`${API_BASE}/extract`, {
+    const res = await fetch(`${API_BASE}/qa`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        transcript: context,
-        mode: 'quick',
-        sections: { summary: true, key_takeaways: false, topics: false, action_items: false },
-        duration_minutes: 0,
-      })
+        question: body.question,
+        transcript: body.transcript,
+        mode: body.mode,
+        chat_history: body.chat_history || [],
+        notion_page_id: body.notion_page_id || null,
+        session_id: body.session_id || null
+      }),
     })
 
     if (!res.ok) {
@@ -41,8 +24,7 @@ ${transcript}`
     }
 
     const data = await res.json()
-    const answer = data?.insights?.summary || data?.answer || "I couldn't find an answer to that."
-    return NextResponse.json({ answer })
+    return NextResponse.json({ answer: data.answer })
   } catch (error: any) {
     console.error('Chat route error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })

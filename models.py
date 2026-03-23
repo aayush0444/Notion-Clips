@@ -122,14 +122,13 @@ class WorkBrief(BaseModel):
     )
     watch_or_skip: str = Field(
         description=(
-            "Start with exactly 'Watch' or 'Skip', then a colon, then one sentence justification. "
-            "Watch if: new tools, concrete benchmarks, non-obvious insights, directly applicable techniques. "
-            "Skip if: content is introductory for anyone already working in this area, "
-            "purely theoretical, or covers well-known ground. "
-            "Include timestamp range if only part of the video is worth watching. "
-            "Example: 'Watch: the rate limiting implementation at 18:00-34:00 is production-ready "
-            "and directly applicable to any team running a public API.' "
-            "Example: 'Skip: covers REST API basics that any working developer already knows.'"
+            "Must follow EXACTLY one of these formats: "
+            "'Watch — [one sentence reason why it is worth watching]' "
+            "or 'Skip — [one sentence reason why it is not worth the time]'. "
+            "Reason must focus on professional value (decision quality, frameworks, tradeoffs, applicability), "
+            "not a description of video sections or timestamps. "
+            "Correct example: 'Watch — practical framework for evaluating AI automation tools with real cost tradeoffs included.' "
+            "Wrong example: 'Watch — the section at 6:00 shows building an automation.'"
         )
     )
     key_points: List[str] = Field(
