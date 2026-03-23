@@ -7,6 +7,7 @@ interface AppState {
   sessionId: string | null
   isConnected: boolean
   setIsConnected: (val: boolean) => void
+  disconnectNotion: () => void
   url: string
   setUrl: (val: string) => void
   videoId: string | null
@@ -48,7 +49,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const params = new URLSearchParams(window.location.search)
     if (params.get("connected") === "true") {
       setIsConnected(true)
-      window.history.replaceState({}, '', '/app')
+      window.history.replaceState({}, '', '/')
     } else {
       fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/notion/status/${id}`)
         .then(res => res.json())
@@ -58,6 +59,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .catch(() => {})
     }
   }, [])
+
+  const disconnectNotion = () => {
+    setIsConnected(false)
+    if (sessionId) {
+      localStorage.removeItem("notionclip_session_id")
+    }
+    const newId = crypto.randomUUID()
+    localStorage.setItem("notionclip_session_id", newId)
+    setSessionId(newId)
+  }
 
   const reset = () => {
     setUrl("")
@@ -70,7 +81,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AppContext.Provider value={{
-      sessionId, isConnected, setIsConnected,
+      sessionId, isConnected, setIsConnected, disconnectNotion,
       url, setUrl, videoId, setVideoId,
       mode, setMode, results, setResults,
       transcript, setTranscript, processingTime, setProcessingTime,

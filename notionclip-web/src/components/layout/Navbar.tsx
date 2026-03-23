@@ -1,24 +1,54 @@
 "use client"
-import Link from 'next/link'
-import { Button } from '@/components/ui/Button'
-import { useAppStore } from '@/lib/store'
+
+import { Check, X } from "lucide-react"
+import { useAppStore } from "@/lib/store"
+import { Button } from "@/components/ui/Button"
 
 export function Navbar() {
-  const { sessionId } = useAppStore()
+  const { isConnected, sessionId, disconnectNotion } = useAppStore()
 
-  const handleConnect = () => {
+  const handleConnectNotion = () => {
+    if (!sessionId) return
     window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/auth/notion?session_id=${sessionId}`
   }
+
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/5 bg-background/80 backdrop-blur-md">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        <Link href="/app" className="flex items-center">
-          <span className="font-display text-xl font-bold text-white tracking-tight">
+    <nav className="fixed top-0 left-0 right-0 h-16 border-b border-white/5 bg-[#0a0a0a]/80 backdrop-blur-xl z-50">
+      <div className="max-w-[1440px] mx-auto px-8 h-full flex items-center justify-between">
+        <div className="flex flex-col leading-tight">
+          <div className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
             NotionClip
-          </span>
-        </Link>
-        <div className="flex items-center space-x-4">
-          <Button variant="outline" onClick={handleConnect}>Connect Notion</Button>
+          </div>
+          <div className="text-xs text-white/50 tracking-wide">
+            Watch less. Know more
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {isConnected ? (
+            <>
+              <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-500/10 text-green-400 border border-green-500/20">
+                <Check className="w-4 h-4" />
+                <span className="text-sm">Connected to Notion</span>
+              </div>
+              <button
+                onClick={disconnectNotion}
+                className="p-2 rounded-lg bg-white/5 hover:bg-red-500/10 text-white/40 hover:text-red-400 border border-white/10 hover:border-red-500/20 transition-all"
+                title="Disconnect Notion"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleConnectNotion}
+              className="px-4 py-2 rounded-lg text-sm bg-white/5 hover:bg-white/10 text-white/90 border border-white/10 hover:border-white/20"
+            >
+              Connect Notion
+            </Button>
+          )}
         </div>
       </div>
     </nav>

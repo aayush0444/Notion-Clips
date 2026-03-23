@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Literal, Optional
+import os
+from typing import Any, Dict, List, Literal, Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -12,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from backend.notion_oauth import router as notion_oauth_router
 from backend.supabase_client import get_session
-from gemini import extract_video_insights
+from gemini import answer_question, extract_video_insights
 from models import ActionItem, ActionItemList, StudyNotes, VideoInsights, WorkBrief
 from push_to_notion import push_study_notes, push_work_brief, push_youtube
 from youtube_mode import get_youtube_transcript
@@ -60,6 +61,28 @@ class ExtractResponse(BaseModel):
     word_count: int
     duration_minutes: Optional[float]
     insights: Dict[str, Any]
+
+
+class QARequest(BaseModel):
+    """Request payload for /qa endpoint."""
+
+    question: str = Field(..., description="User question about the video.")
+    transcript: str = Field(..., description="Full transcript text used for Q&A.")
+    mode: ModeLiteral = Field("study", description="Current study/work/quick mode.")
+    chat_mode: Literal["strict", "open"] = Field(
+        "strict",
+        description="strict limits answers to transcript; open allows broader context.",
+    )
+    chat_history: List[Dict[str, str]] = Field(
+        default_factory=list,
+        description="Prior chat messages for conversational context.",
+    )
+
+
+class QAResponse(BaseModel):
+    """Response payload for /qa endpoint."""
+
+    answer: str
 
 
 class PushRequest(BaseModel):
@@ -185,6 +208,9 @@ def _resolve_notion_credentials(
             resolved_token = resolved_token or session.get("notion_token")
             resolved_page_id = resolved_page_id or session.get("notion_page_id")
 
+    if not resolved_page_id:
+        resolved_page_id = os.getenv("NOTION_PAGE_ID")
+
     return {"token": resolved_token, "page_id": resolved_page_id}
 
 
@@ -257,3 +283,25 @@ async def push_to_notion_endpoint(payload: PushRequest) -> PushResponse:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return PushResponse(status="ok", page_id=page_id)
+
+
+@app.post("/qa", response_model=QAResponse)
+async def answer_question_endpoint(payload: QARequest) -> QAResponse:
+    """Answer user questions about a transcript using Gemini helper."""
+    transcript = payload.transcript.strip()
+    if not transcript:
+        raise HTTPException(status_code=400, detail="transcript must not be empty for Q&A")
+
+    try:
+        answer = answer_question(
+            question=payload.question,
+            transcript=transcript,
+            mode=payload.mode,
+            chat_history=payload.chat_history,
+            chat_mode=payload.chat_mode,
+        )
+    except Exception as exc:  # pragma: no cover
+        logger.exception("Q&A generation failed")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return QAResponse(answer=answer)

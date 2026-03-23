@@ -9,7 +9,7 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: "#0a0a14",
+        background: "#0a0a0a",
         foreground: "#F8FAFC",
         primary: "#60A5FA",
         accent: "#A78BFA",
@@ -29,6 +29,8 @@ const config: Config = {
       backgroundImage: {
         'gradient-primary': 'linear-gradient(135deg, #60A5FA, #A78BFA)',
         'gradient-deep': 'linear-gradient(135deg, #3B82F6, #7C3AED)',
+        'orb-blue': 'radial-gradient(circle, rgba(59,130,246,0.5) 0%, transparent 70%)',
+        'orb-purple': 'radial-gradient(circle, rgba(168,85,247,0.5) 0%, transparent 70%)',
       }
     },
   },

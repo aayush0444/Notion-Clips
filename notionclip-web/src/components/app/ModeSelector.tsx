@@ -6,17 +6,18 @@ import { cn } from '@/lib/utils'
 export function ModeSelector() {
   const { mode, setMode } = useAppStore()
   
-  const modes: { id: Mode; label: string; desc: string }[] = [
-    { id: 'study', label: 'Study', desc: "Formula sheets, timestamped facts, self-test questions" },
-    { id: 'work', label: 'Work', desc: "Watch or Skip verdict, tools, decisions, next actions" },
-    { id: 'quick', label: 'Quick', desc: "The gist in two minutes" }
+  const modes: { id: Mode; label: string }[] = [
+    { id: 'study', label: 'Study' },
+    { id: 'work', label: 'Work' },
+    { id: 'quick', label: 'Quick' }
   ]
 
-  const currentDesc = modes.find(m => m.id === mode)?.desc
-
   return (
-    <div className="w-full mb-8 flex flex-col items-center">
-      <div className="flex space-x-2 p-1">
+    <div>
+      <label className="block text-xs text-white/40 mb-3 uppercase tracking-wider">
+        Processing Mode
+      </label>
+      <div className="flex gap-2 bg-white/5 p-1 rounded-lg border border-white/10">
         {modes.map(m => {
           const isActive = mode === m.id
           return (
@@ -24,10 +25,14 @@ export function ModeSelector() {
               key={m.id}
               onClick={() => setMode(m.id)}
               className={cn(
-                "px-5 py-2 rounded-lg text-sm font-medium transition-colors outline-none",
+                "flex-1 px-4 py-2.5 rounded-md text-sm transition-all",
                 isActive 
-                  ? "bg-white text-black" 
-                  : "text-muted hover:text-white bg-white/5 hover:bg-white/10"
+                  ? m.id === 'study'
+                    ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                    : m.id === 'work'
+                      ? "bg-purple-500/20 text-purple-300 border border-purple-500/30"
+                      : "bg-green-500/20 text-green-300 border border-green-500/30"
+                  : "text-white/50 hover:text-white/70 hover:bg-white/5"
               )}
             >
               {m.label}
@@ -35,9 +40,11 @@ export function ModeSelector() {
           )
         })}
       </div>
-      <p className="mt-3 text-sm text-muted h-5 transition-all">
-        {currentDesc}
-      </p>
+      <div className="mt-3 text-xs text-white/40 leading-relaxed">
+        {mode === 'study' && 'Extracts formulas, key facts, and self-test questions from lectures'}
+        {mode === 'work' && 'Generates watch/skip verdict, tools mentioned, and action items'}
+        {mode === 'quick' && 'Provides a concise summary and key takeaways'}
+      </div>
     </div>
   )
 }

@@ -44,7 +44,7 @@ export interface ExtractResponse {
 
 export interface PushResponse {
   status: 'ok'
-  page_id: string
+  page_id: string | null
 }
 
 export interface AuthStatusResponse {
