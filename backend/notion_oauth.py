@@ -31,7 +31,6 @@ router = APIRouter(prefix="/auth/notion", tags=["notion_oauth"])
 
 
 def _require_oauth_env() -> None:
-    """Ensure all required OAuth environment variables are present."""
     missing = [
         var for var in ["NOTION_CLIENT_ID", "NOTION_CLIENT_SECRET", "NOTION_REDIRECT_URI"]
         if not os.getenv(var)
@@ -44,7 +43,6 @@ def _require_oauth_env() -> None:
 
 
 def _encode_state(session_id: str, notion_page_id: Optional[str]) -> str:
-    """Encode session information into a URL-safe state string."""
     payload = {
         "session_id":     session_id,
         "notion_page_id": notion_page_id,
@@ -56,7 +54,6 @@ def _encode_state(session_id: str, notion_page_id: Optional[str]) -> str:
 
 
 def _decode_state(state: str) -> Dict[str, Optional[str]]:
-    """Decode a state string back into its payload."""
     try:
         decoded = base64.urlsafe_b64decode(state.encode("utf-8")).decode("utf-8")
         data = json.loads(decoded)
@@ -68,35 +65,120 @@ def _decode_state(state: str) -> Dict[str, Optional[str]]:
 
 
 class AuthStatusResponse(BaseModel):
-    """OAuth status payload."""
     session_id:     str
     has_token:      bool
     notion_page_id: Optional[str] = None
 
 
 def _auth_params(
-    session_id: str = Query(..., description="Client-generated session identifier"),
+    session_id: str = Query(...),
     notion_page_id: Optional[str] = Query(default=None),
 ) -> Dict[str, Optional[str]]:
-    """Dependency for extracting auth query params."""
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
     return {"session_id": session_id, "notion_page_id": notion_page_id}
+
+
+def _notion_headers(token: str) -> dict:
+    return {
+        "Authorization": f"Bearer {token}",
+        "Notion-Version": "2022-06-28",
+        "Content-Type": "application/json",
+    }
+
+
+def _find_or_create_root_page(token: str) -> str:
+    """
+    Strategy:
+    1. Search if 'NotionClip Notes' already exists — reuse it if found.
+    2. Try creating a workspace-level page.
+    3. If both fail, return empty string — push will fail gracefully.
+    """
+    headers = _notion_headers(token)
+
+    # ── Step 1: Search for existing page ────────────────────────────────────
+    try:
+        search_resp = requests.post(
+            "https://api.notion.com/v1/search",
+            headers=headers,
+            json={"query": "NotionClip Notes", "filter": {"property": "object", "value": "page"}},
+            timeout=10,
+        )
+        print(f"[SEARCH] status={search_resp.status_code} body={search_resp.text[:300]}")
+        if search_resp.status_code == 200:
+            results = search_resp.json().get("results", [])
+            for r in results:
+                title_list = r.get("properties", {}).get("title", {}).get("title", [])
+                title_text = "".join(t.get("plain_text", "") for t in title_list)
+                if "NotionClip" in title_text:
+                    found_id = r.get("id", "")
+                    print(f"[SEARCH] Found existing page: {found_id}")
+                    return found_id
+    except Exception as e:
+        print(f"[SEARCH] Exception: {e}")
+
+    # ── Step 2: Create workspace-level page ──────────────────────────────────
+    try:
+        create_resp = requests.post(
+            "https://api.notion.com/v1/pages",
+            headers=headers,
+            json={
+                "parent": {"type": "workspace", "workspace": True},
+                "icon": {"type": "emoji", "emoji": "🧠"},
+                "properties": {
+                    "title": [{"type": "text", "text": {"content": "NotionClip Notes"}}]
+                },
+            },
+            timeout=10,
+        )
+        print(f"[CREATE ROOT] status={create_resp.status_code} body={create_resp.text[:400]}")
+        if create_resp.status_code == 200:
+            page_id = create_resp.json().get("id", "")
+            print(f"[CREATE ROOT] Success: {page_id}")
+            return page_id
+        else:
+            print(f"[CREATE ROOT] Failed — {create_resp.status_code}: {create_resp.text[:300]}")
+    except Exception as e:
+        print(f"[CREATE ROOT] Exception: {e}")
+
+    return ""
+
+
+def _create_child_page(token: str, parent_id: str, title: str, emoji: str) -> str:
+    """Create a child page under parent_id. Returns page ID or empty string."""
+    if not parent_id:
+        print(f"[CREATE CHILD] Skipping {title} — no parent_id")
+        return ""
+    try:
+        resp = requests.post(
+            "https://api.notion.com/v1/pages",
+            headers=_notion_headers(token),
+            json={
+                "parent": {"type": "page_id", "page_id": parent_id},
+                "icon": {"type": "emoji", "emoji": emoji},
+                "properties": {
+                    "title": [{"type": "text", "text": {"content": title}}]
+                },
+            },
+            timeout=10,
+        )
+        print(f"[CREATE CHILD '{title}'] status={resp.status_code} body={resp.text[:300]}")
+        if resp.status_code == 200:
+            page_id = resp.json().get("id", "")
+            print(f"[CREATE CHILD '{title}'] Success: {page_id}")
+            return page_id
+        return ""
+    except Exception as e:
+        print(f"[CREATE CHILD '{title}'] Exception: {e}")
+        return ""
 
 
 @router.get("", response_model=None)
 def start_auth(
     params: Dict[str, Optional[str]] = Depends(_auth_params),
 ) -> RedirectResponse:
-    """Redirect browser to Notion OAuth consent page.
-
-    redirect_uri is intentionally NOT included in the authorization URL.
-    Notion uses the redirect URI registered in the integration settings.
-    Including it in the URL causes a mismatch error.
-    """
     _require_oauth_env()
     state = _encode_state(params["session_id"], params["notion_page_id"])
-
     auth_url = (
         f"{NOTION_OAUTH_URL}"
         f"?client_id={NOTION_CLIENT_ID}"
@@ -112,123 +194,49 @@ def oauth_callback(
     code:  str = Query(...),
     state: str = Query(...),
 ) -> RedirectResponse:
-    """Handle Notion OAuth callback, exchange code for token, store session,
-    then redirect user back to the frontend app page."""
     _require_oauth_env()
-    state_payload  = _decode_state(state)
-    session_id     = state_payload["session_id"]
-    notion_page_id = state_payload.get("notion_page_id")
+    state_payload = _decode_state(state)
+    session_id    = state_payload["session_id"]
 
-    # Exchange code for access token
-    # Note: redirect_uri is NOT included here because it was not
-    # included in the authorize URL — they must match
-    token_payload = {
-        "grant_type": "authorization_code",
-        "code":       code,
-    }
+    # Exchange code for token
     auth_header = base64.b64encode(
         f"{NOTION_CLIENT_ID}:{NOTION_CLIENT_SECRET}".encode()
     ).decode()
-    headers = {
-        "Content-Type":  "application/json",
-        "Authorization": f"Basic {auth_header}",
-    }
 
     response = requests.post(
         NOTION_TOKEN_URL,
-        json=token_payload,
-        headers=headers,
+        json={"grant_type": "authorization_code", "code": code},
+        headers={"Content-Type": "application/json", "Authorization": f"Basic {auth_header}"},
         timeout=15,
     )
+
+    print(f"[TOKEN EXCHANGE] status={response.status_code}")
     if response.status_code != 200:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Failed to exchange code for token: {response.text}",
-        )
+        raise HTTPException(status_code=502, detail=f"Token exchange failed: {response.text}")
 
     data         = response.json()
-    access_token = data.get("access_token")
+    access_token = data.get("access_token", "")
     if not access_token:
-        raise HTTPException(
-            status_code=502,
-            detail="Notion response missing access_token.",
-        )
-    print(f"Notion access token prefix: {access_token[:20]}")
+        raise HTTPException(status_code=502, detail="Notion response missing access_token.")
 
-    root_page_id = ""
-    study_page_id = ""
-    work_page_id = ""
-    quick_page_id = ""
+    print(f"[TOKEN EXCHANGE] token prefix={access_token[:20]} workspace={data.get('workspace_name')}")
 
-    page_headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Notion-Version": "2022-06-28",
-        "Content-Type": "application/json",
-    }
+    # Create page structure
+    root_page_id  = _find_or_create_root_page(access_token)
+    study_page_id = _create_child_page(access_token, root_page_id, "Study Notes", "📚")
+    work_page_id  = _create_child_page(access_token, root_page_id, "Work Briefs", "💼")
+    quick_page_id = _create_child_page(access_token, root_page_id, "Quick Saves", "⚡")
 
-    try:
-        root_payload = {
-            "parent": {"type": "workspace", "workspace": True},
-            "icon": {"type": "emoji", "emoji": "🧠"},
-            "properties": {
-                "title": [{"type": "text", "text": {"content": "NotionClip Notes"}}]
-            },
-        }
-        root_resp = requests.post(
-            "https://api.notion.com/v1/pages",
-            headers=page_headers,
-            json=root_payload,
-            timeout=10,
-        )
-        print(f"[PAGE CREATION] status={root_resp.status_code} body={root_resp.text[:300]}")
-        if root_resp.status_code != 200:
-            print(f"Notion page creation failed: {root_resp.status_code} — {root_resp.text}")
-            raise Exception("Root page creation failed")
-        root_page_id = root_resp.json().get("id", "")
-    except Exception as exc:  # pragma: no cover
-        logger.exception("Failed to create root NotionClip Notes page: %s", exc)
-
-    def _create_child(title: str, emoji: str) -> str:
-        if not root_page_id:
-            return ""
-        try:
-            child_payload = {
-                "parent": {"type": "page_id", "page_id": root_page_id},
-                "icon": {"type": "emoji", "emoji": emoji},
-                "properties": {
-                    "title": [{"type": "text", "text": {"content": title}}]
-                },
-            }
-            child_resp = requests.post(
-                "https://api.notion.com/v1/pages",
-                headers=page_headers,
-                json=child_payload,
-                timeout=10,
-            )
-            print(f"[PAGE CREATION] status={child_resp.status_code} body={child_resp.text[:300]}")
-            if child_resp.status_code != 200:
-                print(f"Notion page creation failed: {child_resp.status_code} — {child_resp.text}")
-                raise Exception(f"Child page creation failed for {title}")
-            return child_resp.json().get("id", "") or ""
-        except Exception as exc:  # pragma: no cover
-            logger.exception("Failed to create child page %s: %s", title, exc)
-            return ""
-
-    study_page_id = _create_child("Study Notes", "📚")
-    work_page_id = _create_child("Work Briefs", "💼")
-    quick_page_id = _create_child("Quick Saves", "⚡")
+    print(f"[SESSION SAVE] root={root_page_id} study={study_page_id} work={work_page_id} quick={quick_page_id}")
 
     save_session(session_id, access_token, root_page_id, study_page_id, work_page_id, quick_page_id)
 
-    # Redirect back to frontend — store.tsx detects ?connected=true
-    # and sets isConnected=true automatically
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
     return RedirectResponse(url=f"{frontend_url}/app?connected=true")
 
 
 @router.get("/status/{session_id}", response_model=AuthStatusResponse)
 def auth_status(session_id: str) -> AuthStatusResponse:
-    """Check whether a session has a stored Notion token."""
     session   = get_session(session_id)
     has_token = bool(session and session.get("notion_token"))
     return AuthStatusResponse(
