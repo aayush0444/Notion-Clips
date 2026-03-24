@@ -58,6 +58,15 @@ def save_session(
 
 def get_session(session_id: str) -> Optional[Dict[str, Any]]:
     """Fetch a session from Supabase by session_id."""
-    client = _get_client()
-    response = client.table(SESSIONS_TABLE).select("*").eq("session_id", session_id).single().execute()
-    return response.data
+    try:
+        client = _get_client()
+        response = (
+            client.table(SESSIONS_TABLE)
+            .select("*")
+            .eq("session_id", session_id)
+            .maybe_single()
+            .execute()
+        )
+        return response.data
+    except Exception:
+        return None

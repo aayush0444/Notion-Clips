@@ -180,6 +180,7 @@ def oauth_callback(
             json=root_payload,
             timeout=10,
         )
+        print(f"[PAGE CREATION] status={root_resp.status_code} body={root_resp.text[:300]}")
         if root_resp.status_code != 200:
             print(f"Notion page creation failed: {root_resp.status_code} — {root_resp.text}")
             raise Exception("Root page creation failed")
@@ -204,6 +205,7 @@ def oauth_callback(
                 json=child_payload,
                 timeout=10,
             )
+            print(f"[PAGE CREATION] status={child_resp.status_code} body={child_resp.text[:300]}")
             if child_resp.status_code != 200:
                 print(f"Notion page creation failed: {child_resp.status_code} — {child_resp.text}")
                 raise Exception(f"Child page creation failed for {title}")
