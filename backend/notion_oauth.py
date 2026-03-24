@@ -153,6 +153,7 @@ def oauth_callback(
             status_code=502,
             detail="Notion response missing access_token.",
         )
+    print(f"Notion access token prefix: {access_token[:20]}")
 
     root_page_id = ""
     study_page_id = ""
@@ -177,9 +178,11 @@ def oauth_callback(
             "https://api.notion.com/v1/pages",
             headers=page_headers,
             json=root_payload,
-            timeout=15,
+            timeout=10,
         )
-        root_resp.raise_for_status()
+        if root_resp.status_code != 200:
+            print(f"Notion page creation failed: {root_resp.status_code} — {root_resp.text}")
+            raise Exception("Root page creation failed")
         root_page_id = root_resp.json().get("id", "")
     except Exception as exc:  # pragma: no cover
         logger.exception("Failed to create root NotionClip Notes page: %s", exc)
@@ -199,9 +202,11 @@ def oauth_callback(
                 "https://api.notion.com/v1/pages",
                 headers=page_headers,
                 json=child_payload,
-                timeout=15,
+                timeout=10,
             )
-            child_resp.raise_for_status()
+            if child_resp.status_code != 200:
+                print(f"Notion page creation failed: {child_resp.status_code} — {child_resp.text}")
+                raise Exception(f"Child page creation failed for {title}")
             return child_resp.json().get("id", "") or ""
         except Exception as exc:  # pragma: no cover
             logger.exception("Failed to create child page %s: %s", title, exc)
