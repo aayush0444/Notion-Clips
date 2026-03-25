@@ -2,9 +2,16 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import { Mode } from './types'
+import { getSupabaseClient } from './supabaseClient'
 
 interface AppState {
   sessionId: string | null
+  userId: string | null
+  userEmail: string | null
+  isAuthenticated: boolean
+  signInWithGoogle: () => Promise<void>
+  signOutGoogle: () => Promise<void>
+  getCurrentUserId: () => Promise<string | null>
   isConnected: boolean
   setIsConnected: (val: boolean) => void
   disconnectNotion: () => void
@@ -22,6 +29,14 @@ interface AppState {
   setTranscript: (val: string | null) => void
   processingTime: number | null
   setProcessingTime: (val: number | null) => void
+  transcriptFetchMs: number | null
+  setTranscriptFetchMs: (val: number | null) => void
+  extractMs: number | null
+  setExtractMs: (val: number | null) => void
+  extractCacheHit: boolean | null
+  setExtractCacheHit: (val: boolean | null) => void
+  transcriptCacheHit: boolean | null
+  setTranscriptCacheHit: (val: boolean | null) => void
   duration: number | null
   setDuration: (val: number | null) => void
   wordCount: number | null
@@ -33,6 +48,8 @@ const AppContext = createContext<AppState | undefined>(undefined)
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [sessionId, setSessionId] = useState<string | null>(null)
+  const [userId, setUserId] = useState<string | null>(null)
+  const [userEmail, setUserEmail] = useState<string | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [notionPageId, setNotionPageId] = useState<string | null>(null)
   const [url, setUrl] = useState("")
@@ -41,10 +58,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [results, setResults] = useState<any | null>(null)
   const [transcript, setTranscript] = useState<string | null>(null)
   const [processingTime, setProcessingTime] = useState<number | null>(null)
+  const [transcriptFetchMs, setTranscriptFetchMs] = useState<number | null>(null)
+  const [extractMs, setExtractMs] = useState<number | null>(null)
+  const [extractCacheHit, setExtractCacheHit] = useState<boolean | null>(null)
+  const [transcriptCacheHit, setTranscriptCacheHit] = useState<boolean | null>(null)
   const [duration, setDuration] = useState<number | null>(null)
   const [wordCount, setWordCount] = useState<number | null>(null)
 
   useEffect(() => {
+    const supabase = getSupabaseClient()
+    const syncUser = async () => {
+      const { data } = await supabase.auth.getSession()
+      const user = data.session?.user
+      setUserId(user?.id || null)
+      setUserEmail(user?.email || null)
+    }
+    syncUser()
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      const user = session?.user
+      setUserId(user?.id || null)
+      setUserEmail(user?.email || null)
+    })
+
     let id = localStorage.getItem("notionclip_session_id")
     if (!id) {
       id = crypto.randomUUID()
@@ -64,7 +100,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         })
         .catch(() => {})
     }
+
+    return () => {
+      authListener.subscription.unsubscribe()
+    }
   }, [])
+
+  const signInWithGoogle = async () => {
+    const supabase = getSupabaseClient()
+    const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/app` : undefined
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo }
+    })
+    if (error) throw error
+  }
+
+  const signOutGoogle = async () => {
+    const supabase = getSupabaseClient()
+    const { error } = await supabase.auth.signOut()
+    if (error) throw error
+  }
+
+  const getCurrentUserId = async (): Promise<string | null> => {
+    const supabase = getSupabaseClient()
+    const { data } = await supabase.auth.getSession()
+    const liveUserId = data.session?.user?.id || null
+    if (liveUserId && liveUserId !== userId) {
+      setUserId(liveUserId)
+      setUserEmail(data.session?.user?.email || null)
+    }
+    return liveUserId
+  }
 
   const disconnectNotion = () => {
     setIsConnected(false)
@@ -82,17 +149,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setResults(null)
     setTranscript(null)
     setProcessingTime(null)
+    setTranscriptFetchMs(null)
+    setExtractMs(null)
+    setExtractCacheHit(null)
+    setTranscriptCacheHit(null)
     setDuration(null)
     setWordCount(null)
   }
 
   return (
     <AppContext.Provider value={{
-      sessionId, isConnected, setIsConnected, disconnectNotion,
+      sessionId, userId, userEmail, isAuthenticated: Boolean(userId),
+      signInWithGoogle, signOutGoogle, getCurrentUserId,
+      isConnected, setIsConnected, disconnectNotion,
       notionPageId, setNotionPageId,
       url, setUrl, videoId, setVideoId,
       mode, setMode, results, setResults,
       transcript, setTranscript, processingTime, setProcessingTime,
+      transcriptFetchMs, setTranscriptFetchMs, extractMs, setExtractMs,
+      extractCacheHit, setExtractCacheHit,
+      transcriptCacheHit, setTranscriptCacheHit,
       duration, setDuration,
       wordCount, setWordCount, reset
     }}>

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import logging
 import os
+import time
+import hashlib
+import json
 from typing import Any, Dict, List, Literal, Optional
 import requests
 
@@ -13,11 +16,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from backend.notion_oauth import router as notion_oauth_router
-from backend.supabase_client import get_session
+from backend.supabase_client import (
+    get_cached_insights,
+    get_cached_transcript,
+    get_session,
+    save_cached_insights,
+    save_cached_transcript,
+)
 from gemini import answer_question, extract_video_insights
 from models import ActionItem, ActionItemList, StudyNotes, VideoInsights, WorkBrief
 from push_to_notion import push_study_notes, push_work_brief, push_youtube
-from youtube_mode import get_youtube_transcript
+from youtube_mode import extract_video_id, get_youtube_transcript
 
 load_dotenv()
 
@@ -38,6 +47,8 @@ class TranscriptResponse(BaseModel):
 
     transcript: str
     duration_minutes: float
+    cache_hit: bool = False
+    fetch_ms: int = 0
 
 
 class ExtractRequest(BaseModel):
@@ -62,6 +73,7 @@ class ExtractResponse(BaseModel):
     word_count: int
     duration_minutes: Optional[float]
     insights: Dict[str, Any]
+    cache_hit: bool = False
 
 
 class QARequest(BaseModel):
@@ -143,6 +155,7 @@ app.add_middleware(
 )
 
 app.include_router(notion_oauth_router)
+PROMPT_VERSION = "v1"
 
 
 @app.get("/health")
@@ -154,9 +167,36 @@ async def health_check() -> Dict[str, str]:
 @app.post("/transcript", response_model=TranscriptResponse)
 async def fetch_transcript(payload: TranscriptRequest) -> TranscriptResponse:
     """Fetch a transcript for the requested YouTube video."""
-    video_id = payload.video_id.strip()
-    if not video_id:
+    start = time.perf_counter()
+    input_value = payload.video_id.strip()
+    if not input_value:
         raise HTTPException(status_code=400, detail="video_id is required")
+    video_id = extract_video_id(input_value)
+    if not video_id:
+        raise HTTPException(status_code=400, detail="Unable to parse video_id from input")
+
+    try:
+        cached = get_cached_transcript(video_id)
+    except Exception as exc:
+        logger.warning("Transcript cache read failed for video_id=%s: %s", video_id, exc)
+        cached = None
+
+    if cached and cached.get("transcript"):
+        transcript = str(cached.get("transcript", "")).strip()
+        if transcript:
+            duration_raw = cached.get("duration_minutes")
+            try:
+                duration = float(duration_raw) if duration_raw is not None else len(transcript.split()) / 130
+            except (TypeError, ValueError):
+                duration = len(transcript.split()) / 130
+            logger.info("Transcript cache hit for video_id=%s", video_id)
+            fetch_ms = int((time.perf_counter() - start) * 1000)
+            return TranscriptResponse(
+                transcript=transcript,
+                duration_minutes=duration,
+                cache_hit=True,
+                fetch_ms=fetch_ms,
+            )
 
     try:
         transcript, duration = get_youtube_transcript(video_id)
@@ -164,7 +204,19 @@ async def fetch_transcript(payload: TranscriptRequest) -> TranscriptResponse:
         logger.exception("Transcript fetch failed for video_id=%s", video_id)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    return TranscriptResponse(transcript=transcript, duration_minutes=duration)
+    try:
+        save_cached_transcript(video_id, transcript, duration)
+        logger.info("Transcript cache save success for video_id=%s", video_id)
+    except Exception as exc:
+        logger.warning("Transcript cache write failed for video_id=%s: %s", video_id, exc)
+
+    fetch_ms = int((time.perf_counter() - start) * 1000)
+    return TranscriptResponse(
+        transcript=transcript,
+        duration_minutes=duration,
+        cache_hit=False,
+        fetch_ms=fetch_ms,
+    )
 
 
 @app.post("/extract", response_model=ExtractResponse)
@@ -180,6 +232,27 @@ async def extract_insights(payload: ExtractRequest) -> ExtractResponse:
         "topics": True,
         "action_items": True,
     }
+    sections_key = json.dumps(sections, sort_keys=True, separators=(",", ":"))
+    transcript_hash = hashlib.sha256(transcript.encode("utf-8")).hexdigest()
+    cache_key = hashlib.sha256(
+        f"{payload.mode}|{sections_key}|{transcript_hash}|{PROMPT_VERSION}".encode("utf-8")
+    ).hexdigest()
+
+    try:
+        cached = get_cached_insights(cache_key)
+    except Exception as exc:
+        logger.warning("Insights cache read failed key=%s: %s", cache_key[:10], exc)
+        cached = None
+
+    if cached and isinstance(cached.get("insights"), dict):
+        logger.info("Insights cache hit key=%s mode=%s", cache_key[:10], payload.mode)
+        return ExtractResponse(
+            mode=payload.mode,
+            word_count=int(cached.get("word_count") or len(transcript.split())),
+            duration_minutes=payload.duration_minutes,
+            insights=cached["insights"],
+            cache_hit=True,
+        )
 
     try:
         insights = extract_video_insights(
@@ -198,11 +271,25 @@ async def extract_insights(payload: ExtractRequest) -> ExtractResponse:
     else:
         serialized = insights
 
+    try:
+        save_cached_insights(
+            cache_key=cache_key,
+            mode=payload.mode,
+            transcript_hash=transcript_hash,
+            sections_key=sections_key,
+            insights=serialized,
+            word_count=word_count,
+        )
+        logger.info("Insights cache save key=%s mode=%s", cache_key[:10], payload.mode)
+    except Exception as exc:
+        logger.warning("Insights cache write failed key=%s: %s", cache_key[:10], exc)
+
     return ExtractResponse(
         mode=payload.mode,
         word_count=word_count,
         duration_minutes=payload.duration_minutes,
         insights=serialized,
+        cache_hit=False,
     )
 
 

@@ -3,7 +3,7 @@
 import { useAppStore } from "@/lib/store"
 
 export function MetricStrip() {
-  const { results, mode, processingTime, wordCount, duration } = useAppStore()
+  const { results, mode, processingTime, wordCount, duration, transcriptFetchMs, extractMs, transcriptCacheHit, extractCacheHit } = useAppStore()
   if (!results) return null
 
   const keyPoints =
@@ -17,6 +17,8 @@ export function MetricStrip() {
 
   const stats = [
     { label: "Processing Time", value: processingTime ? `${(processingTime / 1000).toFixed(1)}s` : "0s" },
+    { label: "Transcript Fetch", value: transcriptFetchMs ? `${(transcriptFetchMs / 1000).toFixed(1)}s${transcriptCacheHit ? " (cache)" : ""}` : "—" },
+    { label: "AI Extraction", value: extractMs ? `${(extractMs / 1000).toFixed(1)}s${extractCacheHit ? " (cache)" : ""}` : "—" },
     { label: "Video Length", value: durationLabel },
     { label: "Word Count", value: wordCount ? wordCount.toLocaleString() : "0" },
     { label: "Key Points", value: `${keyPoints}` },

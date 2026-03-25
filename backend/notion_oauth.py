@@ -42,10 +42,11 @@ def _require_oauth_env() -> None:
         )
 
 
-def _encode_state(session_id: str, notion_page_id: Optional[str]) -> str:
+def _encode_state(session_id: str, notion_page_id: Optional[str], user_id: Optional[str]) -> str:
     payload = {
         "session_id":     session_id,
         "notion_page_id": notion_page_id,
+        "user_id":        user_id,
         "nonce":          secrets.token_hex(8),
     }
     return base64.urlsafe_b64encode(
@@ -68,15 +69,17 @@ class AuthStatusResponse(BaseModel):
     session_id:     str
     has_token:      bool
     notion_page_id: Optional[str] = None
+    user_id: Optional[str] = None
 
 
 def _auth_params(
     session_id: str = Query(...),
     notion_page_id: Optional[str] = Query(default=None),
+    user_id: Optional[str] = Query(default=None),
 ) -> Dict[str, Optional[str]]:
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
-    return {"session_id": session_id, "notion_page_id": notion_page_id}
+    return {"session_id": session_id, "notion_page_id": notion_page_id, "user_id": user_id}
 
 
 def _notion_headers(token: str) -> dict:
@@ -85,6 +88,24 @@ def _notion_headers(token: str) -> dict:
         "Notion-Version": "2022-06-28",
         "Content-Type": "application/json",
     }
+
+
+def _extract_page_title(page: Dict[str, object]) -> str:
+    properties = page.get("properties", {})
+    if not isinstance(properties, dict):
+        return ""
+    for value in properties.values():
+        if not isinstance(value, dict):
+            continue
+        if value.get("type") != "title":
+            continue
+        title_items = value.get("title", [])
+        if not isinstance(title_items, list):
+            continue
+        return "".join(
+            item.get("plain_text", "") for item in title_items if isinstance(item, dict)
+        )
+    return ""
 
 
 def _find_or_create_root_page(token: str) -> str:
@@ -96,50 +117,54 @@ def _find_or_create_root_page(token: str) -> str:
     """
     headers = _notion_headers(token)
 
-    # ── Step 1: Search for existing page ────────────────────────────────────
-    try:
-        search_resp = requests.post(
-            "https://api.notion.com/v1/search",
-            headers=headers,
-            json={"query": "NotionClip Notes", "filter": {"property": "object", "value": "page"}},
-            timeout=10,
-        )
-        print(f"[SEARCH] status={search_resp.status_code} body={search_resp.text[:300]}")
-        if search_resp.status_code == 200:
-            results = search_resp.json().get("results", [])
-            for r in results:
-                title_list = r.get("properties", {}).get("title", {}).get("title", [])
-                title_text = "".join(t.get("plain_text", "") for t in title_list)
-                if "NotionClip" in title_text:
-                    found_id = r.get("id", "")
-                    print(f"[SEARCH] Found existing page: {found_id}")
+    search_resp = requests.post(
+        "https://api.notion.com/v1/search",
+        headers=headers,
+        json={"query": "NotionClip Notes", "filter": {"property": "object", "value": "page"}},
+        timeout=10,
+    )
+    if search_resp.ok:
+        results = search_resp.json().get("results", [])
+        for result in results:
+            if not isinstance(result, dict):
+                continue
+            title_text = _extract_page_title(result)
+            if title_text.strip() == "NotionClip Notes":
+                found_id = result.get("id", "")
+                if isinstance(found_id, str) and found_id:
+                    logger.info("Found existing root page: %s", found_id)
                     return found_id
-    except Exception as e:
-        print(f"[SEARCH] Exception: {e}")
-
-    # ── Step 2: Create workspace-level page ──────────────────────────────────
-    try:
-        create_resp = requests.post(
-            "https://api.notion.com/v1/pages",
-            headers=headers,
-            json={
-                "parent": {"type": "workspace", "workspace": True},
-                "icon": {"type": "emoji", "emoji": "🧠"},
-                "properties": {
-                    "title": [{"type": "text", "text": {"content": "NotionClip Notes"}}]
-                },
-            },
-            timeout=10,
+    else:
+        logger.warning(
+            "Notion root search failed status=%s body=%s",
+            search_resp.status_code,
+            search_resp.text[:300],
         )
-        print(f"[CREATE ROOT] status={create_resp.status_code} body={create_resp.text[:400]}")
-        if create_resp.status_code == 200:
-            page_id = create_resp.json().get("id", "")
-            print(f"[CREATE ROOT] Success: {page_id}")
+
+    create_resp = requests.post(
+        "https://api.notion.com/v1/pages",
+        headers=headers,
+        json={
+            "parent": {"type": "workspace", "workspace": True},
+            "icon": {"type": "emoji", "emoji": "🧠"},
+            "properties": {
+                "title": {
+                    "title": [{"type": "text", "text": {"content": "NotionClip Notes"}}]
+                }
+            },
+        },
+        timeout=10,
+    )
+    if create_resp.ok:
+        page_id = create_resp.json().get("id", "")
+        if isinstance(page_id, str) and page_id:
+            logger.info("Created root page: %s", page_id)
             return page_id
-        else:
-            print(f"[CREATE ROOT] Failed — {create_resp.status_code}: {create_resp.text[:300]}")
-    except Exception as e:
-        print(f"[CREATE ROOT] Exception: {e}")
+    logger.error(
+        "Failed to create root page status=%s body=%s",
+        create_resp.status_code,
+        create_resp.text[:400],
+    )
 
     return ""
 
@@ -147,30 +172,61 @@ def _find_or_create_root_page(token: str) -> str:
 def _create_child_page(token: str, parent_id: str, title: str, emoji: str) -> str:
     """Create a child page under parent_id. Returns page ID or empty string."""
     if not parent_id:
-        print(f"[CREATE CHILD] Skipping {title} — no parent_id")
+        logger.error("Skipping child page '%s' creation because parent_id is missing", title)
         return ""
-    try:
-        resp = requests.post(
-            "https://api.notion.com/v1/pages",
-            headers=_notion_headers(token),
-            json={
-                "parent": {"type": "page_id", "page_id": parent_id},
-                "icon": {"type": "emoji", "emoji": emoji},
-                "properties": {
-                    "title": [{"type": "text", "text": {"content": title}}]
-                },
-            },
-            timeout=10,
+
+    search_resp = requests.post(
+        "https://api.notion.com/v1/search",
+        headers=_notion_headers(token),
+        json={"query": title, "filter": {"property": "object", "value": "page"}},
+        timeout=10,
+    )
+    if search_resp.ok:
+        results = search_resp.json().get("results", [])
+        for result in results:
+            if not isinstance(result, dict):
+                continue
+            title_text = _extract_page_title(result)
+            parent = result.get("parent", {})
+            parent_page_id = parent.get("page_id") if isinstance(parent, dict) else None
+            if title_text.strip() == title and parent_page_id == parent_id:
+                page_id = result.get("id", "")
+                if isinstance(page_id, str) and page_id:
+                    logger.info("Found existing child page '%s': %s", title, page_id)
+                    return page_id
+    else:
+        logger.warning(
+            "Child search failed for '%s' status=%s body=%s",
+            title,
+            search_resp.status_code,
+            search_resp.text[:300],
         )
-        print(f"[CREATE CHILD '{title}'] status={resp.status_code} body={resp.text[:300]}")
-        if resp.status_code == 200:
-            page_id = resp.json().get("id", "")
-            print(f"[CREATE CHILD '{title}'] Success: {page_id}")
+
+    resp = requests.post(
+        "https://api.notion.com/v1/pages",
+        headers=_notion_headers(token),
+        json={
+            "parent": {"type": "page_id", "page_id": parent_id},
+            "icon": {"type": "emoji", "emoji": emoji},
+            "properties": {
+                "title": {"title": [{"type": "text", "text": {"content": title}}]}
+            },
+        },
+        timeout=10,
+    )
+    if resp.ok:
+        page_id = resp.json().get("id", "")
+        if isinstance(page_id, str) and page_id:
+            logger.info("Created child page '%s': %s", title, page_id)
             return page_id
-        return ""
-    except Exception as e:
-        print(f"[CREATE CHILD '{title}'] Exception: {e}")
-        return ""
+
+    logger.error(
+        "Failed to create child page '%s' status=%s body=%s",
+        title,
+        resp.status_code,
+        resp.text[:300],
+    )
+    return ""
 
 
 @router.get("", response_model=None)
@@ -178,12 +234,13 @@ def start_auth(
     params: Dict[str, Optional[str]] = Depends(_auth_params),
 ) -> RedirectResponse:
     _require_oauth_env()
-    state = _encode_state(params["session_id"], params["notion_page_id"])
+    state = _encode_state(params["session_id"], params["notion_page_id"], params.get("user_id"))
     auth_url = (
         f"{NOTION_OAUTH_URL}"
         f"?client_id={NOTION_CLIENT_ID}"
         f"&response_type=code"
         f"&owner=user"
+        f"&redirect_uri={NOTION_REDIRECT_URI}"
         f"&state={state}"
     )
     return RedirectResponse(url=auth_url)
@@ -205,12 +262,16 @@ def oauth_callback(
 
     response = requests.post(
         NOTION_TOKEN_URL,
-        json={"grant_type": "authorization_code", "code": code},
+        json={
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": NOTION_REDIRECT_URI,
+        },
         headers={"Content-Type": "application/json", "Authorization": f"Basic {auth_header}"},
         timeout=15,
     )
 
-    print(f"[TOKEN EXCHANGE] status={response.status_code}")
+    logger.info("Token exchange status=%s", response.status_code)
     if response.status_code != 200:
         raise HTTPException(status_code=502, detail=f"Token exchange failed: {response.text}")
 
@@ -219,17 +280,54 @@ def oauth_callback(
     if not access_token:
         raise HTTPException(status_code=502, detail="Notion response missing access_token.")
 
-    print(f"[TOKEN EXCHANGE] token prefix={access_token[:20]} workspace={data.get('workspace_name')}")
+    logger.info(
+        "Notion OAuth success workspace=%s owner=%s",
+        data.get("workspace_name"),
+        data.get("owner", {}).get("type") if isinstance(data.get("owner"), dict) else "unknown",
+    )
 
     # Create page structure
     root_page_id  = _find_or_create_root_page(access_token)
+    if not root_page_id:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Notion authorization succeeded but failed to find/create 'NotionClip Notes' page. "
+                "Ensure the integration has page creation permissions."
+            ),
+        )
+
     study_page_id = _create_child_page(access_token, root_page_id, "Study Notes", "📚")
     work_page_id  = _create_child_page(access_token, root_page_id, "Work Briefs", "💼")
     quick_page_id = _create_child_page(access_token, root_page_id, "Quick Saves", "⚡")
 
-    print(f"[SESSION SAVE] root={root_page_id} study={study_page_id} work={work_page_id} quick={quick_page_id}")
+    if not study_page_id or not work_page_id or not quick_page_id:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Notion authorization succeeded but failed to initialize one or more mode pages "
+                "(Study Notes / Work Briefs / Quick Saves)."
+            ),
+        )
 
-    save_session(session_id, access_token, root_page_id, study_page_id, work_page_id, quick_page_id)
+    logger.info(
+        "Saving session=%s root=%s study=%s work=%s quick=%s",
+        session_id,
+        root_page_id,
+        study_page_id,
+        work_page_id,
+        quick_page_id,
+    )
+
+    save_session(
+        session_id,
+        access_token,
+        root_page_id,
+        study_page_id,
+        work_page_id,
+        quick_page_id,
+        user_id=state_payload.get("user_id"),
+    )
 
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
     return RedirectResponse(url=f"{frontend_url}/app?connected=true")
@@ -243,4 +341,5 @@ def auth_status(session_id: str) -> AuthStatusResponse:
         session_id=session_id,
         has_token=has_token,
         notion_page_id=session.get("notion_page_id") if session else None,
+        user_id=session.get("user_id") if session else None,
     )

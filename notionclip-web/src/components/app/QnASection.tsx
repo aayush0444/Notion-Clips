@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useAppStore } from '@/lib/store'
 import { Send } from 'lucide-react'
+import { api } from '@/lib/api'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -29,30 +30,22 @@ export function QnASection() {
   const handleSend = async (text: string) => {
     const trimmed = text.trim()
     if (!trimmed) return
-    const newMessages = [...messages, { role: 'user', content: trimmed } as Message]
+    const historyBefore = [...messages]
+    const newMessages = [...historyBefore, { role: 'user', content: trimmed } as Message]
     setMessages(newMessages)
     setInput("")
     setError("")
 
     try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question: trimmed,
-          transcript,
-          mode,
-          chat_history: newMessages,
-          notion_page_id: notionPageId,
-          session_id: sessionId
-        })
-      })
-      if (!res.ok) {
-        const errorBody = await res.text()
-        throw new Error(errorBody || "Failed to get response.")
-      }
-      const data = await res.json()
-      let answer: string = data.answer || ""
+      let answer = await api.askChat(
+        trimmed,
+        transcript,
+        mode,
+        'strict',
+        historyBefore,
+        sessionId,
+        notionPageId
+      )
       const notionEdited = answer.startsWith("[NOTION_EDITED]")
       if (notionEdited) {
         answer = answer.replace("[NOTION_EDITED]", "").trim()

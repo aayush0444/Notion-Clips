@@ -25,6 +25,28 @@ def get_supadata_api_key():
     return os.getenv("SUPADATA_API_KEY", "")
 
 
+def _is_cloud_runtime() -> bool:
+    return bool(
+        os.getenv("RAILWAY_ENVIRONMENT")
+        or os.getenv("RAILWAY_PROJECT_ID")
+        or os.getenv("VERCEL")
+        or os.getenv("RENDER")
+    )
+
+
+def _transcript_priority() -> str:
+    """
+    Returns "scraping_first" or "supadata_first".
+    Override via TRANSCRIPT_PRIORITY env:
+      - scraping_first
+      - supadata_first
+    """
+    override = (os.getenv("TRANSCRIPT_PRIORITY") or "").strip().lower()
+    if override in {"scraping_first", "supadata_first"}:
+        return override
+    return "supadata_first" if _is_cloud_runtime() else "scraping_first"
+
+
 # ─── URL Parsing ──────────────────────────────────────────────────────────────
 
 def extract_video_id(url_or_id: str) -> str:
@@ -130,8 +152,8 @@ def _inject_timestamps_into_plain_text(plain_text: str, segments: list) -> str:
 
 def _fetch_via_supadata(video_id: str) -> tuple | None:
     """
-    Method 1 — PRIMARY: Supadata API.
-    Reliable on Streamlit Cloud and Railway — no IP-based rate limits.
+    Method 2 — FALLBACK: Supadata API.
+    Reliable on cloud when scraping is blocked/rate-limited.
     Returns (plain_text, duration_minutes) or None on failure.
     """
     api_key = get_supadata_api_key()
@@ -176,7 +198,7 @@ def _fetch_via_supadata(video_id: str) -> tuple | None:
 
 def _fetch_via_scraping(video_id: str) -> tuple | None:
     """
-    Method 2 — FALLBACK: youtube-transcript-api (scraping).
+    Method 1 — PRIMARY: youtube-transcript-api (scraping).
     Gets per-segment timestamps so we return a timestamped transcript.
     Returns (timestamped_text, duration_minutes) or None on failure.
     """
@@ -201,69 +223,83 @@ def _fetch_via_scraping(video_id: str) -> tuple | None:
 
 def get_youtube_transcript(video_id: str) -> tuple[str, float]:
     """
-    Fetch transcript using a 2-method chain:
-
-      1. Supadata (PRIMARY)
-         — Reliable on cloud, no IP bans, fast.
-         — Returns plain text. We then silently attempt scraping
-           just to inject [MM:SS] markers for better AI referencing.
-           If scraping is blocked, Supadata text is returned as-is.
-
-      2. Direct scraping — FALLBACK
-         — Used only if Supadata fails.
-         — Returns transcript with timestamps embedded.
+    Fetch transcript using environment-aware priority:
+      Local/dev  -> scraping_first
+      Cloud/prod -> supadata_first
+    Can be overridden using TRANSCRIPT_PRIORITY env var.
 
     Raises Exception with clear message if both methods fail.
     """
     print(f"  🎬 Fetching transcript for: {video_id}")
 
-    # ── Method 1: Supadata ───────────────────────────────────────────────────
-    supadata_result = _fetch_via_supadata(video_id)
+    strategy = _transcript_priority()
+    print(f"  ⚙️  Transcript strategy: {strategy}")
 
-    if supadata_result:
+    def _return_supadata_with_optional_timestamps() -> tuple[str, float] | None:
+        supadata_result = _fetch_via_supadata(video_id)
+        if not supadata_result:
+            return None
         plain_text, duration = supadata_result
-
-        # Silent best-effort: try scraping just to get timestamps.
-        # This works on first few requests locally / sometimes on cloud.
-        # If it fails we silently continue — Supadata text is already complete.
         try:
             raw_segments = YouTubeTranscriptApi().fetch(video_id).to_raw_data()
             if raw_segments:
                 enriched = _inject_timestamps_into_plain_text(plain_text, raw_segments)
-                has_ts   = "[" in enriched and ":" in enriched
-                label    = "Supadata + timestamps" if has_ts else "Supadata (no timestamps)"
+                has_ts = "[" in enriched and ":" in enriched
+                label = "Supadata + timestamps" if has_ts else "Supadata (no timestamps)"
                 print(f"  📝 {len(enriched.split()):,} words | ~{duration:.1f} min | ✅ {label}")
                 return enriched, duration
         except Exception:
-            pass  # scraping blocked — fine, Supadata text is enough
-
+            pass
         print(f"  📝 {len(plain_text.split()):,} words | ~{duration:.1f} min | Supadata (no timestamps)")
         return plain_text, duration
 
-    # ── Method 2: Scraping fallback ──────────────────────────────────────────
-    print("  🔄 Supadata failed — trying direct scraping...")
-    scrape_result = _fetch_via_scraping(video_id)
-    if scrape_result:
-        text, duration = scrape_result
-        print(f"  📝 {len(text.split()):,} words | ~{duration:.1f} min | ✅ scraping with timestamps")
-        return text, duration
+    if strategy == "supadata_first":
+        primary = _return_supadata_with_optional_timestamps()
+        if primary:
+            return primary
+        print("  🔄 Supadata unavailable — trying scraping fallback...")
+        scrape_result = _fetch_via_scraping(video_id)
+        if scrape_result:
+            text, duration = scrape_result
+            print(f"  📝 {len(text.split()):,} words | ~{duration:.1f} min | ✅ scraping fallback")
+            return text, duration
+    else:
+        scrape_result = _fetch_via_scraping(video_id)
+        if scrape_result:
+            text, duration = scrape_result
+            print(f"  📝 {len(text.split()):,} words | ~{duration:.1f} min | ✅ scraping primary")
+            return text, duration
+        print("  🔄 Scraping unavailable — trying Supadata fallback...")
+        fallback = _return_supadata_with_optional_timestamps()
+        if fallback:
+            return fallback
 
     raise Exception(
         "Could not fetch transcript for this video.\n\n"
         "Possible reasons:\n"
         "• Video has no captions enabled\n"
         "• Video is private or age-restricted\n"
-        "• Supadata quota exceeded — check your dashboard\n"
+        "• YouTube transcript endpoint blocked for this request\n"
+        "• Supadata fallback unavailable/quota exceeded\n"
         "• Video is too new (captions not yet generated)"
     )
 
 
 def get_transcript_source_info() -> str:
     """Returns which sources are configured — shown in the YouTube Mode UI."""
-    parts = []
-    if get_supadata_api_key():
-        parts.append("Supadata (primary)")
-    parts.append("Scraping (fallback)")
+    strategy = _transcript_priority()
+    if strategy == "supadata_first":
+        first = "Supadata (primary)"
+        second = "youtube-transcript-api (fallback)"
+    else:
+        first = "youtube-transcript-api (primary)"
+        second = "Supadata (fallback)"
+    if "Supadata" in first or "Supadata" in second:
+        if not get_supadata_api_key():
+            second = "Supadata (fallback unavailable)"
+            if first.startswith("Supadata"):
+                first = "youtube-transcript-api (primary)"
+    parts = [first, second]
     return " → ".join(parts)
 
 

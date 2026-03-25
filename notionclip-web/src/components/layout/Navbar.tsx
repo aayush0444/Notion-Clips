@@ -5,11 +5,13 @@ import { useAppStore } from "@/lib/store"
 import { Button } from "@/components/ui/Button"
 
 export function Navbar() {
-  const { isConnected, sessionId, disconnectNotion } = useAppStore()
+  const { isConnected, sessionId, userId, disconnectNotion, isAuthenticated, signInWithGoogle, signOutGoogle, userEmail, getCurrentUserId } = useAppStore()
 
-  const handleConnectNotion = () => {
+  const handleConnectNotion = async () => {
     if (!sessionId) return
-    window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/auth/notion?session_id=${sessionId}`
+    const resolvedUserId = userId || await getCurrentUserId()
+    const userQuery = resolvedUserId ? `&user_id=${encodeURIComponent(resolvedUserId)}` : ""
+    window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/auth/notion?session_id=${sessionId}${userQuery}`
   }
 
   return (
@@ -25,6 +27,24 @@ export function Navbar() {
         </div>
 
         <div className="flex items-center gap-3">
+          {isAuthenticated ? (
+            <button
+              onClick={signOutGoogle}
+              className="px-3 py-2 rounded-lg text-xs bg-white/5 hover:bg-white/10 text-white/70 border border-white/10"
+              title={userEmail || "Signed in"}
+            >
+              {userEmail ? `Sign out (${userEmail})` : "Sign out"}
+            </button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={signInWithGoogle}
+              className="px-4 py-2 rounded-lg text-sm bg-white/5 hover:bg-white/10 text-white/90 border border-white/10 hover:border-white/20"
+            >
+              Sign in with Google
+            </Button>
+          )}
           {isConnected ? (
             <>
               <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-500/10 text-green-400 border border-green-500/20">

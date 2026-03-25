@@ -4,11 +4,13 @@ import { Button } from '@/components/ui/Button'
 import { useAppStore } from '@/lib/store'
 
 export function AppHeader() {
-  const { isConnected, sessionId, disconnectNotion } = useAppStore()
+  const { isConnected, sessionId, userId, disconnectNotion, getCurrentUserId } = useAppStore()
 
-  const handleConnect = () => {
+  const handleConnect = async () => {
     if (!sessionId) return
-    window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/auth/notion?session_id=${sessionId}`
+    const resolvedUserId = userId || await getCurrentUserId()
+    const userQuery = resolvedUserId ? `&user_id=${encodeURIComponent(resolvedUserId)}` : ""
+    window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/auth/notion?session_id=${sessionId}${userQuery}`
   }
 
   return (

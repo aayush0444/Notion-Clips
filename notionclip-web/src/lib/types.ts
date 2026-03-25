@@ -34,6 +34,8 @@ export type Insights = StudyInsights | WorkInsights | QuickInsights
 export interface TranscriptResponse {
   transcript: string
   duration_minutes: number
+  cache_hit?: boolean
+  fetch_ms?: number
 }
 
 export interface ExtractResponse {
@@ -41,6 +43,7 @@ export interface ExtractResponse {
   word_count: number
   duration_minutes?: number | null
   insights: Insights
+  cache_hit?: boolean
 }
 
 export interface PushResponse {
@@ -51,4 +54,5 @@ export interface PushResponse {
 export interface AuthStatusResponse {
   has_token: boolean
   notion_page_id: string | null
+  user_id?: string | null
 }

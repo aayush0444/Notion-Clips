@@ -5,6 +5,7 @@ import requests
 import streamlit as st
 from dotenv import load_dotenv
 from typing import Union, List, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
@@ -115,6 +116,10 @@ def _get_length_profile(word_count: int) -> dict:
 CHUNK_SIZE_WORDS = 4000    # words per chunk for long video processing
 CHUNK_OVERLAP    = 200     # overlap between chunks to avoid missing context
 CHUNKING_THRESHOLD = 8000  # word count above which chunking is used
+QA_CHUNK_WORDS = 260
+QA_CHUNK_OVERLAP = 40
+QA_TOP_K = 5
+MAX_PARALLEL_CHUNKS = 3
 
 
 # ─── Chunk Processing ─────────────────────────────────────────────────────────
@@ -132,6 +137,65 @@ def _split_into_chunks(transcript: str) -> List[str]:
             break
         start = end - CHUNK_OVERLAP  # overlap
     return chunks
+
+
+def _split_for_qa(transcript: str) -> List[str]:
+    """Smaller chunking for Q&A retrieval."""
+    words = transcript.split()
+    if not words:
+        return []
+    chunks = []
+    start = 0
+    while start < len(words):
+        end = min(start + QA_CHUNK_WORDS, len(words))
+        chunks.append(" ".join(words[start:end]))
+        if end == len(words):
+            break
+        start = end - QA_CHUNK_OVERLAP
+    return chunks
+
+
+def _tokenize_query(text: str) -> List[str]:
+    return re.findall(r"[a-zA-Z0-9]{3,}", (text or "").lower())
+
+
+def _score_qa_chunk(chunk: str, query_tokens: List[str]) -> float:
+    if not chunk or not query_tokens:
+        return 0.0
+    chunk_lc = chunk.lower()
+    token_hits = sum(1 for tok in query_tokens if tok in chunk_lc)
+    dense_hits = sum(1 for tok in set(query_tokens) if f" {tok} " in f" {chunk_lc} ")
+    timestamp_bonus = 0.5 if re.search(r"\[\d{2}:\d{2}\]", chunk) else 0.0
+    return token_hits + (dense_hits * 0.5) + timestamp_bonus
+
+
+def _select_relevant_qa_chunks(
+    transcript: str,
+    question: str,
+    chat_history: List[dict],
+    top_k: int = QA_TOP_K
+) -> List[str]:
+    chunks = _split_for_qa(transcript)
+    if not chunks:
+        return []
+
+    recent_user_context = " ".join(
+        msg.get("content", "")
+        for msg in chat_history[-4:]
+        if msg.get("role") == "user"
+    )
+    query_tokens = _tokenize_query(f"{question} {recent_user_context}")
+    if not query_tokens:
+        return chunks[:top_k]
+
+    scored = []
+    for idx, chunk in enumerate(chunks):
+        scored.append((idx, _score_qa_chunk(chunk, query_tokens), chunk))
+
+    scored.sort(key=lambda x: x[1], reverse=True)
+    top = scored[:top_k]
+    top.sort(key=lambda x: x[0])  # preserve transcript order for readability
+    return [item[2] for item in top]
 
 
 def _extract_chunk(chunk_text: str, chunk_label: str, mode: str) -> _ChunkExtract:
@@ -192,6 +256,27 @@ TRANSCRIPT SECTION:
 {chunk_text}
 """
     return llm.invoke(prompt)
+
+
+def _extract_chunks_parallel(chunks: List[str], mode: str) -> List[_ChunkExtract]:
+    """Extract chunk insights concurrently while preserving order."""
+    if not chunks:
+        return []
+
+    total = len(chunks)
+    results: List[Optional[_ChunkExtract]] = [None] * total
+    workers = min(MAX_PARALLEL_CHUNKS, total)
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(_extract_chunk, chunk, f"Section {i + 1} of {total}", mode): i
+            for i, chunk in enumerate(chunks)
+        }
+        for future in as_completed(futures):
+            idx = futures[future]
+            results[idx] = future.result()
+
+    return [result for result in results if result is not None]
 
 
 def _synthesize_study_notes(
@@ -499,12 +584,7 @@ def extract_video_insights(
     # Long videos — chunked extraction then synthesis
     # This prevents hallucination from transcript compression
     chunks = _split_into_chunks(transcript)
-    chunk_results = []
-
-    for i, chunk in enumerate(chunks):
-        label = f"Section {i+1} of {len(chunks)}"
-        result = _extract_chunk(chunk, label, mode)
-        chunk_results.append(result)
+    chunk_results = _extract_chunks_parallel(chunks, mode)
 
     # Use first ~500 words as opening context for title generation
     transcript_opening = " ".join(transcript.split()[:500])
@@ -605,10 +685,21 @@ def answer_question(
     edit_keywords = ["edit", "add to notion", "update notion", "add this to", "save this to notion", "put this in notion", "add a note", "update my notes", "append to"]
     is_edit_request = any(kw in question.lower() for kw in edit_keywords) and bool(notion_page_id)
 
+    relevant_chunks = _select_relevant_qa_chunks(transcript, question, chat_history, QA_TOP_K)
+    if relevant_chunks:
+        retrieval_context = "\n\n".join(
+            f"[Retrieved chunk {i + 1}]\n{chunk}" for i, chunk in enumerate(relevant_chunks)
+        )
+    else:
+        retrieval_context = transcript[:6000]
+
     system_content = f"""{persona}
 
-Video transcript you have fully absorbed:
-{transcript}
+Use ONLY the retrieved transcript context below as ground truth for video-specific claims.
+If context is insufficient, say so briefly and ask one targeted follow-up question.
+
+RETRIEVED TRANSCRIPT CONTEXT:
+{retrieval_context}
 """
 
     if is_edit_request and notion_page_id:
@@ -619,7 +710,7 @@ When you detect an edit request, perform the edit via the Notion API and prefix 
 
     messages = [SystemMessage(content=system_content)]
 
-    for msg in chat_history[-8:]:
+    for msg in chat_history[-6:]:
         role = msg.get("role", "user")
         content = msg.get("content", "")
         if role == "user":

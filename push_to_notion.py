@@ -13,6 +13,18 @@ PRIORITY_COLORS = {"High": "red", "Medium": "yellow", "Low": "green"}
 
 # Notion API limit: 100 children blocks per request
 NOTION_BLOCK_LIMIT = 90  # leave some buffer
+GENERIC_TITLES = {
+    "studynotes",
+    "study notes",
+    "workbrief",
+    "work brief",
+    "quicknotes",
+    "quick notes",
+    "summary",
+    "video summary",
+    "youtube video",
+    "notes",
+}
 
 
 # ─── Auth Helpers ─────────────────────────────────────────────────────────────
@@ -59,6 +71,35 @@ def get_headers(token_override: Optional[str] = None):
         "Content-Type": "application/json",
         "Notion-Version": NOTION_VERSION
     }
+
+
+def _normalize_title_text(raw: str) -> str:
+    if not raw:
+        return ""
+    text = " ".join(raw.replace("\n", " ").split()).strip(" -:|")
+    return text[:120]
+
+
+def _is_generic_title(title: str) -> bool:
+    normalized = _normalize_title_text(title).lower()
+    return not normalized or normalized in GENERIC_TITLES
+
+
+def _headline_from_summary(summary: str) -> str:
+    cleaned = _normalize_title_text(summary)
+    if not cleaned:
+        return ""
+    return cleaned[:90]
+
+
+def _resolve_video_related_title(mode_label: str, title: str, summary_hint: str) -> str:
+    clean_title = _normalize_title_text(title)
+    if clean_title and not _is_generic_title(clean_title):
+        return f"{mode_label}: {clean_title}"
+    fallback = _headline_from_summary(summary_hint)
+    if fallback:
+        return f"{mode_label}: {fallback}"
+    return f"{mode_label}: YouTube Video Notes"
 
 
 # ─── Block Builders ───────────────────────────────────────────────────────────
@@ -318,69 +359,62 @@ def push_study_notes(
     """
     parent_page_id = clean_page_id(get_notion_page_id(notion_page_id))
 
-    all_blocks = [
-        make_bookmark(video_url),
-        make_divider(),
-        make_callout(notes.core_concept, "📐", "yellow_background"),
-        make_divider(),
-    ]
+    all_blocks = [make_bookmark(video_url)]
 
-    # Formula Sheet
+    if notes.core_concept:
+        all_blocks.append(make_heading("🧠 Video Summary"))
+
+    all_blocks.append(make_callout(notes.core_concept, "📐", "yellow_background"))
+
     if notes.formula_sheet:
         all_blocks.append(make_heading("📋 Formula Sheet"))
-        all_blocks.append(
-            make_paragraph(
-                "Each formula below includes definitions of every variable.",
-                italic=True, color="gray"
-            )
-        )
         for formula in notes.formula_sheet:
             all_blocks.append(make_code_block(formula))
-        all_blocks.append(make_divider())
 
-    # Key Facts (scaled — could be 30-50 for a 2hr video)
     if notes.key_facts:
         all_blocks.append(make_heading("⚡ Key Facts"))
-        all_blocks.append(
-            make_paragraph(
-                f"{len(notes.key_facts)} facts extracted from this video. "
-                "Timestamps (≈MM:SS) indicate where in the video each fact appears.",
-                italic=True, color="gray"
-            )
-        )
         for fact in notes.key_facts:
             all_blocks.append(make_numbered(fact))
-        all_blocks.append(make_divider())
 
-    # Common Mistakes
     if notes.common_mistakes:
         all_blocks.append(make_heading("⚠️ Common Mistakes"))
         for mistake in notes.common_mistakes:
             all_blocks.append(make_bullet(mistake))
-        all_blocks.append(make_divider())
 
-    # Self-Test (toggle blocks)
     if notes.self_test:
         all_blocks.append(make_heading("🧪 Self-Test"))
-        all_blocks.append(
-            make_paragraph(
-                "Click each question to open it. Try to answer before looking.",
-                italic=True, color="gray"
+        for question in notes.self_test:
+            all_blocks.append(
+                {
+                    "object": "block",
+                    "type": "toggle",
+                    "toggle": {
+                        "rich_text": [{"type": "text", "text": {"content": question[:2000]}}],
+                        "children": [
+                            {
+                                "object": "block",
+                                "type": "paragraph",
+                                "paragraph": {
+                                    "rich_text": [
+                                        {
+                                            "type": "text",
+                                            "text": {"content": "Think about it first, then expand."},
+                                        }
+                                    ]
+                                },
+                            }
+                        ],
+                    },
+                }
             )
-        )
-        for i, question in enumerate(notes.self_test, 1):
-            all_blocks.append(make_toggle(f"Q{i}: {question}"))
-        all_blocks.append(make_divider())
 
-    # Prerequisites
     if notes.prerequisites:
-        all_blocks.append(make_heading("📚 Prerequisites", level=3))
+        all_blocks.append(make_heading("📚 Prerequisites"))
         for prereq in notes.prerequisites:
             all_blocks.append(make_bullet(prereq))
 
-    # Further Reading
     if notes.further_reading:
-        all_blocks.append(make_heading("📖 Further Reading", level=3))
+        all_blocks.append(make_heading("📖 Further Reading"))
         for resource in notes.further_reading:
             all_blocks.append(make_bullet(resource))
 
@@ -392,7 +426,7 @@ def push_study_notes(
         "parent": {"type": "page_id", "page_id": parent_page_id},
         "icon": {"type": "emoji", "emoji": "📐"},
         "properties": {
-            "title": {"title": [{"text": {"content": f"Study: {notes.title}"}}]}
+            "title": {"title": [{"text": {"content": _resolve_video_related_title("📚 Study", notes.title, notes.core_concept)}}]}
         },
         "children": first_batch
     }
@@ -430,10 +464,9 @@ def push_work_brief(
 
     all_blocks = [
         make_bookmark(video_url),
-        make_divider(),
         make_callout(brief.watch_or_skip, verdict_emoji, verdict_color),
+        make_heading("🧠 Video Summary"),
         make_quote(brief.one_liner),
-        make_divider(),
     ]
 
     # Key Points
@@ -441,50 +474,45 @@ def push_work_brief(
         all_blocks.append(make_heading("💡 Key Points"))
         for point in brief.key_points:
             all_blocks.append(make_bullet(point))
-        all_blocks.append(make_divider())
 
     # Tools Mentioned
     if brief.tools_mentioned:
-        all_blocks.append(make_heading("🛠️ Tools Mentioned", level=3))
-        # All tools in one paragraph with code formatting per tool
-        # Notion rich_text supports annotations per span
-        tools_block = {
-            "object": "block",
-            "type": "paragraph",
-            "paragraph": {
-                "rich_text": []
-            }
-        }
-        for i, tool in enumerate(brief.tools_mentioned):
-            tools_block["paragraph"]["rich_text"].append({
-                "type": "text",
-                "text": {"content": tool},
-                "annotations": {"code": True}
-            })
-            if i < len(brief.tools_mentioned) - 1:
-                tools_block["paragraph"]["rich_text"].append({
-                    "type": "text",
-                    "text": {"content": "  "}
-                })
-        all_blocks.append(tools_block)
-        all_blocks.append(make_divider())
+        all_blocks.append(make_heading("🛠️ Tools Mentioned"))
+        for tool in brief.tools_mentioned:
+            all_blocks.append(
+                {
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [
+                            {
+                                "type": "text",
+                                "text": {"content": tool[:2000]},
+                                "annotations": {"code": True},
+                            }
+                        ]
+                    },
+                }
+            )
 
     # Decisions to Make (actual Notion checkboxes)
     if brief.decisions_to_make:
         all_blocks.append(make_heading("✅ Decisions to Make"))
-        all_blocks.append(
-            make_paragraph(
-                "Check these off as your team works through them.",
-                italic=True, color="gray"
-            )
-        )
         for decision in brief.decisions_to_make:
-            all_blocks.append(make_todo(decision, checked=False))
-        all_blocks.append(make_divider())
+            all_blocks.append(
+                {
+                    "object": "block",
+                    "type": "to_do",
+                    "to_do": {
+                        "rich_text": [{"type": "text", "text": {"content": decision[:2000]}}],
+                        "checked": False,
+                    },
+                }
+            )
 
     # Next Actions
     if brief.next_actions:
-        all_blocks.append(make_heading("🚀 Next Actions", level=3))
+        all_blocks.append(make_heading("🚀 Next Actions"))
         for action in brief.next_actions:
             all_blocks.append(make_bullet(action))
 
@@ -496,7 +524,7 @@ def push_work_brief(
         "parent": {"type": "page_id", "page_id": parent_page_id},
         "icon": {"type": "emoji", "emoji": verdict_emoji},
         "properties": {
-            "title": {"title": [{"text": {"content": f"Brief: {brief.title}"}}]}
+            "title": {"title": [{"text": {"content": _resolve_video_related_title("💼 Work", brief.title, brief.one_liner)}}]}
         },
         "children": first_batch
     }
@@ -526,6 +554,7 @@ def push_youtube(
     page_blocks = [make_bookmark(video_url), make_divider()]
 
     if sections.get("summary", True) and insights.summary:
+        page_blocks.append(make_heading("🧠 Video Summary"))
         page_blocks.append(make_callout(insights.summary, "🎬", "yellow_background"))
         page_blocks.append(make_divider())
 
@@ -553,7 +582,7 @@ def push_youtube(
         "parent": {"type": "page_id", "page_id": parent_page_id},
         "icon": {"type": "emoji", "emoji": "🎬"},
         "properties": {
-            "title": {"title": [{"text": {"content": f"YouTube: {insights.title}"}}]}
+            "title": {"title": [{"text": {"content": _resolve_video_related_title("⚡ Quick", insights.title, insights.summary)}}]}
         },
         "children": first_batch
     }

@@ -6,10 +6,14 @@ import { Button } from '@/components/ui/Button'
 
 type ProcessButtonProps = {
   onProcessingChange?: (loading: boolean) => void
+  onStageChange?: (stage: 'transcript' | 'extract' | 'finalizing') => void
 }
 
-export function ProcessButton({ onProcessingChange }: ProcessButtonProps) {
-  const { url, videoId, mode, setResults, setTranscript, setProcessingTime, setWordCount, setDuration } = useAppStore()
+export function ProcessButton({ onProcessingChange, onStageChange }: ProcessButtonProps) {
+  const {
+    url, videoId, mode, setResults, setTranscript, setProcessingTime, setWordCount, setDuration,
+    setTranscriptFetchMs, setExtractMs, setTranscriptCacheHit, setExtractCacheHit
+  } = useAppStore()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
@@ -26,11 +30,22 @@ export function ProcessButton({ onProcessingChange }: ProcessButtonProps) {
     
     try {
       const start = Date.now()
-      const { transcript, duration_minutes } = await api.getTranscript(videoId)
+      onStageChange?.('transcript')
+      const transcriptStart = Date.now()
+      const transcriptRes = await api.getTranscript(videoId)
+      const transcriptTime = Date.now() - transcriptStart
+      const { transcript, duration_minutes, cache_hit, fetch_ms } = transcriptRes
       setTranscript(transcript)
       setDuration(duration_minutes || null)
+      setTranscriptCacheHit(typeof cache_hit === "boolean" ? cache_hit : null)
+      setTranscriptFetchMs(typeof fetch_ms === "number" ? fetch_ms : transcriptTime)
 
+      onStageChange?.('extract')
+      const extractStart = Date.now()
       const extractRes = await api.extractInsights(transcript, mode)
+      const extractTime = Date.now() - extractStart
+      setExtractMs(extractTime)
+      setExtractCacheHit(typeof extractRes.cache_hit === "boolean" ? extractRes.cache_hit : null)
       if (typeof extractRes.duration_minutes === "number" && extractRes.duration_minutes > 0) {
         setDuration(extractRes.duration_minutes)
       }
@@ -39,6 +54,7 @@ export function ProcessButton({ onProcessingChange }: ProcessButtonProps) {
       setProcessingTime(totalTime)
       setWordCount(extractRes.word_count || 0)
 
+      onStageChange?.('finalizing')
       setTimeout(() => {
         setResults(extractRes.insights)
         setLoading(false)
