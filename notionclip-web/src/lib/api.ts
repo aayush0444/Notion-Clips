@@ -38,13 +38,50 @@ export const api = {
     return { status: data.status, page_id: data.page_id || null }
   },
 
-  async askChat(question: string, transcript: string, mode: string, chatMode: 'strict' | 'open', history: any[]): Promise<string> {
-    const res = await fetch(`/api/chat`, {
+  async askChat(
+    question: string,
+    transcript: string,
+    mode: string,
+    chatMode: 'strict' | 'open',
+    history: any[],
+    sessionId?: string | null,
+    notionPageId?: string | null
+  ): Promise<string> {
+    const safeHistory = (history || []).map((msg: any) => ({
+      role: msg?.role === 'assistant' ? 'assistant' : 'user',
+      content: String(msg?.content || '')
+    }))
+
+    const res = await fetch(`${API_BASE}/qa`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question, transcript, mode, chat_mode: chatMode, chat_history: history })
+      body: JSON.stringify({
+        question,
+        transcript,
+        mode,
+        chat_mode: chatMode,
+        chat_history: safeHistory,
+        session_id: sessionId || null,
+        notion_page_id: notionPageId || null
+      })
     })
-    if (!res.ok) throw new Error("Failed to get chat response")
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`
+      try {
+        const raw = await res.text()
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw)
+            detail = parsed?.detail || parsed?.error || raw
+          } catch {
+            detail = raw
+          }
+        }
+      } catch {
+        // keep default detail
+      }
+      throw new Error(`Chat failed (${res.status}): ${detail}`)
+    }
     const data = await res.json()
     return data.answer
   },

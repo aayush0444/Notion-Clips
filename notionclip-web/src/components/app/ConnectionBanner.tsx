@@ -5,11 +5,13 @@ import { Zap } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 
 export function ConnectionBanner() {
-  const { isConnected, sessionId } = useAppStore()
+  const { isConnected, sessionId, userId, getCurrentUserId } = useAppStore()
 
-  const handleConnect = () => {
+  const handleConnect = async () => {
     if (!sessionId) return
-    window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/auth/notion?session_id=${sessionId}`
+    const resolvedUserId = userId || await getCurrentUserId()
+    const userQuery = resolvedUserId ? `&user_id=${encodeURIComponent(resolvedUserId)}` : ""
+    window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/auth/notion?session_id=${sessionId}${userQuery}`
   }
 
   return (
