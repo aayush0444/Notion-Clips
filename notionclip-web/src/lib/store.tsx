@@ -7,6 +7,12 @@ import { backendUrl } from './backendUrl'
 
 const APP_STATE_KEY = "notionclip_app_state_v1"
 
+function shouldPersistResults(): boolean {
+  if (typeof window === "undefined") return true
+  const host = window.location.hostname
+  return host === "localhost" || host === "127.0.0.1"
+}
+
 type PersistedAppState = {
   url: string
   sourceType: 'youtube' | 'pdf' | 'article' | 'study_session'
@@ -101,6 +107,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (typeof window === "undefined") return
     try {
+      const allowPersistedResults = shouldPersistResults()
       const raw = window.localStorage.getItem(APP_STATE_KEY)
       if (!raw) return
       const saved = JSON.parse(raw) as PersistedAppState
@@ -109,16 +116,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (typeof saved.articleUrl === "string") setArticleUrl(saved.articleUrl)
       if (typeof saved.videoId === "string" || saved.videoId === null) setVideoId(saved.videoId)
       if (saved.mode) setMode(saved.mode)
-      if (saved.results !== undefined) setResults(saved.results)
-      if (typeof saved.transcript === "string" || saved.transcript === null) setTranscript(saved.transcript)
-      if (Array.isArray(saved.questions)) setQuestions(saved.questions)
-      if (typeof saved.processingTime === "number" || saved.processingTime === null) setProcessingTime(saved.processingTime)
-      if (typeof saved.transcriptFetchMs === "number" || saved.transcriptFetchMs === null) setTranscriptFetchMs(saved.transcriptFetchMs)
-      if (typeof saved.extractMs === "number" || saved.extractMs === null) setExtractMs(saved.extractMs)
-      if (typeof saved.extractCacheHit === "boolean" || saved.extractCacheHit === null) setExtractCacheHit(saved.extractCacheHit)
-      if (typeof saved.transcriptCacheHit === "boolean" || saved.transcriptCacheHit === null) setTranscriptCacheHit(saved.transcriptCacheHit)
-      if (typeof saved.duration === "number" || saved.duration === null) setDuration(saved.duration)
-      if (typeof saved.wordCount === "number" || saved.wordCount === null) setWordCount(saved.wordCount)
+      if (allowPersistedResults) {
+        if (saved.results !== undefined) setResults(saved.results)
+        if (typeof saved.transcript === "string" || saved.transcript === null) setTranscript(saved.transcript)
+        if (Array.isArray(saved.questions)) setQuestions(saved.questions)
+        if (typeof saved.processingTime === "number" || saved.processingTime === null) setProcessingTime(saved.processingTime)
+        if (typeof saved.transcriptFetchMs === "number" || saved.transcriptFetchMs === null) setTranscriptFetchMs(saved.transcriptFetchMs)
+        if (typeof saved.extractMs === "number" || saved.extractMs === null) setExtractMs(saved.extractMs)
+        if (typeof saved.extractCacheHit === "boolean" || saved.extractCacheHit === null) setExtractCacheHit(saved.extractCacheHit)
+        if (typeof saved.transcriptCacheHit === "boolean" || saved.transcriptCacheHit === null) setTranscriptCacheHit(saved.transcriptCacheHit)
+        if (typeof saved.duration === "number" || saved.duration === null) setDuration(saved.duration)
+        if (typeof saved.wordCount === "number" || saved.wordCount === null) setWordCount(saved.wordCount)
+      }
     } catch {
       // Ignore persisted state parse errors.
     }
@@ -126,22 +135,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (typeof window === "undefined") return
+    const allowPersistedResults = shouldPersistResults()
     const payload: PersistedAppState = {
       url,
       sourceType,
       articleUrl,
       videoId,
       mode,
-      results,
-      transcript,
-      questions,
-      processingTime,
-      transcriptFetchMs,
-      extractMs,
-      extractCacheHit,
-      transcriptCacheHit,
-      duration,
-      wordCount,
+      results: allowPersistedResults ? results : null,
+      transcript: allowPersistedResults ? transcript : null,
+      questions: allowPersistedResults ? questions : [],
+      processingTime: allowPersistedResults ? processingTime : null,
+      transcriptFetchMs: allowPersistedResults ? transcriptFetchMs : null,
+      extractMs: allowPersistedResults ? extractMs : null,
+      extractCacheHit: allowPersistedResults ? extractCacheHit : null,
+      transcriptCacheHit: allowPersistedResults ? transcriptCacheHit : null,
+      duration: allowPersistedResults ? duration : null,
+      wordCount: allowPersistedResults ? wordCount : null,
     }
     try {
       window.localStorage.setItem(APP_STATE_KEY, JSON.stringify(payload))
