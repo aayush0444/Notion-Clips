@@ -3,10 +3,13 @@
 import { useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import { Navbar } from "@/components/layout/Navbar"
-import { UrlInput } from "@/components/app/UrlInput"
+import { ContentSourceSelector } from "@/components/app/ContentSourceSelector"
 import { ModeSelector } from "@/components/app/ModeSelector"
 import { ProcessButton } from "@/components/app/ProcessButton"
 import { MetricStrip } from "@/components/app/MetricStrip"
+import { SmartWatch } from "@/components/SmartWatch"
+import { SynthesisMode } from "@/components/app/SynthesisMode"
+import { HistoryPanel } from "@/components/HistoryPanel"
 import { StudyModeView } from "@/components/app/results/StudyModeView"
 import { WorkModeView } from "@/components/app/results/WorkModeView"
 import { QuickModeView } from "@/components/app/results/QuickModeView"
@@ -16,9 +19,9 @@ import { api } from "@/lib/api"
 import { Button } from "@/components/ui/Button"
 
 const loadingMessagesByStage = {
-  transcript: "Fetching transcript...",
-  extract: "Extracting insights...",
-  finalizing: "Finalizing results..."
+  transcript: "Reading source context...",
+  extract: "Crafting your mode-specific insights...",
+  finalizing: "Polishing the final output..."
 } as const
 
 function LoadingPanel({ stage }: { stage: keyof typeof loadingMessagesByStage }) {
@@ -59,7 +62,8 @@ function LoadingPanel({ stage }: { stage: keyof typeof loadingMessagesByStage })
 }
 
 export default function AppPage() {
-  const { results, mode, url, sessionId, isConnected, setNotionPageId } = useAppStore()
+  const { results, mode, url, sessionId, isConnected, setNotionPageId, sourceType } = useAppStore()
+  const [viewMode, setViewMode] = useState<'extract' | 'synthesis'>('extract')
   const [pushing, setPushing] = useState(false)
   const [pushError, setPushError] = useState("")
   const [pushSuccess, setPushSuccess] = useState(false)
@@ -116,8 +120,15 @@ export default function AppPage() {
 
   const handleConnectNotion = () => {
     if (!sessionId) return
-    window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/auth/notion?session_id=${sessionId}`
+    const frontendUrl = encodeURIComponent(window.location.origin)
+    window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/auth/notion?session_id=${sessionId}&frontend_url=${frontendUrl}`
   }
+
+  const saveLabelByMode = {
+    study: "Save Study Notes to Notion",
+    work: "Save Work Brief to Notion",
+    quick: "Save Quick Summary to Notion",
+  } as const
 
   return (
     <div className="min-h-screen text-white relative overflow-hidden">
@@ -131,7 +142,7 @@ export default function AppPage() {
               exit={{ opacity: 0, y: -8 }}
               className="px-4 py-2 rounded-lg border border-green-500/30 bg-green-500/15 text-green-300 text-sm"
             >
-              ✓ Saved to Notion successfully
+              ✓ Saved to Notion — your workspace is up to date
             </motion.div>
           )}
         </AnimatePresence>
@@ -149,16 +160,20 @@ export default function AppPage() {
         </AnimatePresence>
       </div>
 
-      <div ref={containerRef} className="pt-16 h-[calc(100vh-0px)] flex">
+      <div ref={containerRef} className="pt-16 h-[calc(100vh-0px)] flex relative z-[1]">
         <aside
           style={{ width: leftWidth }}
-          className="border-r border-white/5 p-8 flex flex-col min-w-[320px] max-w-[520px] h-[calc(100vh-64px)] overflow-y-auto overflow-x-hidden"
+          className="border-r border-white/10 bg-white/[0.02] p-8 flex flex-col min-w-[320px] max-w-[520px] h-[calc(100vh-64px)] overflow-y-auto overflow-x-hidden"
         >
           <div className="flex-1 space-y-6">
-            <UrlInput />
-            <ModeSelector />
-            <ProcessButton onProcessingChange={handleProcessingChange} onStageChange={setProcessingStage} />
+            <ContentSourceSelector />
+            {url && sourceType !== "study_session" && <SmartWatch videoUrl={url} sessionId={sessionId} />}
+            {sourceType !== "study_session" && <ModeSelector onViewModeChange={setViewMode} />}
+            {sourceType !== "study_session" && (
+              <ProcessButton onProcessingChange={handleProcessingChange} onStageChange={setProcessingStage} />
+            )}
             <MetricStrip />
+            <HistoryPanel />
 
             {results && (
               <div className="space-y-2">
@@ -168,14 +183,16 @@ export default function AppPage() {
                     className="w-full py-3.5 text-sm font-medium"
                     onClick={handleSaveToNotion}
                     disabled={pushing}
+                    title={saveLabelByMode[mode]}
                   >
-                    {pushing ? "Saving..." : "Save to Notion"}
+                    {pushing ? "Saving..." : saveLabelByMode[mode]}
                   </Button>
                 ) : (
                   <Button
                     variant="outline"
                     className="w-full py-3.5 text-sm font-medium"
                     onClick={handleConnectNotion}
+                    title="Connect Notion to enable one-click saving"
                   >
                     Connect Notion to Save
                   </Button>
@@ -191,20 +208,31 @@ export default function AppPage() {
             event.preventDefault()
             setIsResizing(true)
           }}
-          className="w-2 cursor-col-resize bg-white/5 hover:bg-white/10 transition-colors touch-none"
+          className="w-2 cursor-col-resize bg-white/5 hover:bg-white/15 transition-colors touch-none"
         />
 
         <section className="flex-1 overflow-y-auto">
-          <div className="max-w-3xl mx-auto p-8">
-            <AnimatePresence mode="wait">
-              {isProcessing ? (
+          <div className="max-w-3xl mx-auto px-8 py-10">
+            {viewMode === 'synthesis' ? (
+              <motion.div
+                key="synthesis"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.3 }}
+              >
+                <SynthesisMode />
+              </motion.div>
+            ) : (
+              <AnimatePresence mode="wait">
+                {isProcessing ? (
                 <motion.div
                   key="loading"
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -12 }}
                   transition={{ duration: 0.3 }}
-                  className="h-full min-h-[60vh] flex items-center justify-center"
+                  className="h-full min-h-[60vh] flex items-center justify-center surface-premium rounded-2xl p-8"
                 >
                   <LoadingPanel stage={processingStage} />
                 </motion.div>
@@ -215,12 +243,12 @@ export default function AppPage() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -12 }}
                   transition={{ duration: 0.3 }}
-                  className="h-full min-h-[60vh] flex items-center justify-center"
+                  className="h-full min-h-[60vh] flex items-center justify-center surface-premium rounded-2xl p-8"
                 >
-                  <div className="text-center max-w-md">
-                    <div className="text-white/40 mb-2">No results yet</div>
+                  <div className="text-center max-w-md text-balance-premium">
+                    <div className="text-white/40 mb-2">Ready when you are</div>
                     <div className="text-sm text-white/30">
-                      Enter a YouTube URL and click Process Video to generate AI notes
+                      Add a YouTube URL, choose your mode, and generate premium notes in one click.
                     </div>
                   </div>
                 </motion.div>
@@ -231,15 +259,16 @@ export default function AppPage() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -12 }}
                   transition={{ duration: 0.3 }}
-                  className="space-y-6"
+                  className="space-y-6 surface-premium rounded-2xl p-6"
                 >
-                  {mode === "study" && <StudyModeView data={results} />}
-                  {mode === "work" && <WorkModeView data={results} />}
-                  {mode === "quick" && <QuickModeView data={results} />}
+                  {mode === "study" && <StudyModeView data={results} sourceUrl={url} />}
+                  {mode === "work" && <WorkModeView data={results} sourceUrl={url} />}
+                  {mode === "quick" && <QuickModeView data={results} sourceUrl={url} />}
                   <QnASection />
                 </motion.div>
               )}
             </AnimatePresence>
+            )}
           </div>
         </section>
       </div>

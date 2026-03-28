@@ -370,6 +370,14 @@ def push_study_notes(
         all_blocks.append(make_heading("📋 Formula Sheet"))
         for formula in notes.formula_sheet:
             all_blocks.append(make_code_block(formula))
+    if notes.key_facts or notes.formula_sheet:
+        all_blocks.append(
+            make_callout(
+                "Study flow: core concept → formulas → key facts → self-test.",
+                "🧭",
+                "gray_background",
+            )
+        )
 
     if notes.key_facts:
         all_blocks.append(make_heading("⚡ Key Facts"))
@@ -398,7 +406,7 @@ def push_study_notes(
                                     "rich_text": [
                                         {
                                             "type": "text",
-                                            "text": {"content": "Think about it first, then expand."},
+                                            "text": {"content": "Write your answer here..."},
                                         }
                                     ]
                                 },
@@ -458,13 +466,14 @@ def push_work_brief(
     parent_page_id = clean_page_id(get_notion_page_id(notion_page_id))
 
     # Determine watch/skip styling
-    is_watch = brief.watch_or_skip.lower().startswith("watch")
+    recommendation = (brief.recommendation or "").strip()
+    is_watch = recommendation.lower().startswith("watch")
     verdict_emoji = "🟢" if is_watch else "🔴"
     verdict_color = "green_background" if is_watch else "red_background"
 
     all_blocks = [
         make_bookmark(video_url),
-        make_callout(brief.watch_or_skip, verdict_emoji, verdict_color),
+        make_callout(recommendation, verdict_emoji, verdict_color),
         make_heading("🧠 Video Summary"),
         make_quote(brief.one_liner),
     ]
@@ -514,7 +523,24 @@ def push_work_brief(
     if brief.next_actions:
         all_blocks.append(make_heading("🚀 Next Actions"))
         for action in brief.next_actions:
-            all_blocks.append(make_bullet(action))
+            all_blocks.append(
+                {
+                    "object": "block",
+                    "type": "to_do",
+                    "to_do": {
+                        "rich_text": [{"type": "text", "text": {"content": action[:2000]}}],
+                        "checked": False,
+                    },
+                }
+            )
+    if brief.next_actions or brief.decisions_to_make:
+        all_blocks.append(
+            make_callout(
+                "Execution rule: pick one decision and one next action to complete this week.",
+                "🎯",
+                "gray_background",
+            )
+        )
 
     # Split and create
     first_batch  = all_blocks[:NOTION_BLOCK_LIMIT]
@@ -574,6 +600,14 @@ def push_youtube(
         page_blocks.append(make_heading("✅ Action Items"))
         for a in insights.action_items:
             page_blocks.append(make_bullet(a))
+    if sections.get("summary", True) and insights.summary:
+        page_blocks.append(
+            make_callout(
+                "Quick mode is for fast clarity. If this looks high-value, switch to Study or Work mode for depth.",
+                "⚡",
+                "gray_background",
+            )
+        )
 
     first_batch  = page_blocks[:NOTION_BLOCK_LIMIT]
     extra_blocks = page_blocks[NOTION_BLOCK_LIMIT:]

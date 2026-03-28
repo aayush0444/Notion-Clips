@@ -42,11 +42,17 @@ def _require_oauth_env() -> None:
         )
 
 
-def _encode_state(session_id: str, notion_page_id: Optional[str], user_id: Optional[str]) -> str:
+def _encode_state(
+    session_id: str,
+    notion_page_id: Optional[str],
+    user_id: Optional[str],
+    frontend_url: Optional[str],
+) -> str:
     payload = {
         "session_id":     session_id,
         "notion_page_id": notion_page_id,
         "user_id":        user_id,
+        "frontend_url":   frontend_url,
         "nonce":          secrets.token_hex(8),
     }
     return base64.urlsafe_b64encode(
@@ -76,10 +82,16 @@ def _auth_params(
     session_id: str = Query(...),
     notion_page_id: Optional[str] = Query(default=None),
     user_id: Optional[str] = Query(default=None),
+    frontend_url: Optional[str] = Query(default=None),
 ) -> Dict[str, Optional[str]]:
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
-    return {"session_id": session_id, "notion_page_id": notion_page_id, "user_id": user_id}
+    return {
+        "session_id": session_id,
+        "notion_page_id": notion_page_id,
+        "user_id": user_id,
+        "frontend_url": frontend_url,
+    }
 
 
 def _notion_headers(token: str) -> dict:
@@ -234,7 +246,12 @@ def start_auth(
     params: Dict[str, Optional[str]] = Depends(_auth_params),
 ) -> RedirectResponse:
     _require_oauth_env()
-    state = _encode_state(params["session_id"], params["notion_page_id"], params.get("user_id"))
+    state = _encode_state(
+        params["session_id"],
+        params["notion_page_id"],
+        params.get("user_id"),
+        params.get("frontend_url"),
+    )
     auth_url = (
         f"{NOTION_OAUTH_URL}"
         f"?client_id={NOTION_CLIENT_ID}"
@@ -329,7 +346,11 @@ def oauth_callback(
         user_id=state_payload.get("user_id"),
     )
 
-    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+    frontend_url = state_payload.get("frontend_url") or os.getenv("FRONTEND_URL", "http://localhost:3000")
+    if isinstance(frontend_url, str):
+        frontend_url = frontend_url.rstrip("/")
+    else:
+        frontend_url = "http://localhost:3000"
     return RedirectResponse(url=f"{frontend_url}/app?connected=true")
 
 

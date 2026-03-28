@@ -11,18 +11,43 @@ type ProcessButtonProps = {
 
 export function ProcessButton({ onProcessingChange, onStageChange }: ProcessButtonProps) {
   const {
-    url, videoId, mode, setResults, setTranscript, setProcessingTime, setWordCount, setDuration,
+    sourceType, url, articleUrl, pdfFile, videoId, mode, sessionId, userId, questions, transcript, setResults, setTranscript, setProcessingTime, setWordCount, setDuration,
     setTranscriptFetchMs, setExtractMs, setTranscriptCacheHit, setExtractCacheHit
   } = useAppStore()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const modeCta = {
+    study: "Build Study Notes",
+    work: "Build Work Brief",
+    quick: "Generate Quick Summary",
+  } as const
+  const modeHint = {
+    study: "Deep notes with formulas, key facts, and self-test prompts.",
+    work: "Decision-focused brief with tools, decisions, and next actions.",
+    quick: "Fast high-signal summary with key takeaways.",
+  } as const
+  const sourceHint = {
+    youtube: "YouTube transcript extraction",
+    pdf: "PDF text extraction",
+    article: "Article content extraction",
+    study_session: "Study Session workspace",
+  } as const
 
   useEffect(() => {
     setError("")
-  }, [url])
+  }, [url, articleUrl, pdfFile, sourceType])
+
+  const canProcess =
+    sourceType === 'study_session'
+      ? false
+      : sourceType === 'youtube'
+      ? Boolean(videoId)
+      : sourceType === 'pdf'
+      ? Boolean(pdfFile)
+      : Boolean(articleUrl && articleUrl.startsWith('http'))
 
   const handleProcess = async () => {
-    if (!videoId) return
+    if (!canProcess) return
     setLoading(true)
     onProcessingChange?.(true)
     setResults(null)
@@ -31,18 +56,69 @@ export function ProcessButton({ onProcessingChange, onStageChange }: ProcessButt
     try {
       const start = Date.now()
       onStageChange?.('transcript')
-      const transcriptStart = Date.now()
-      const transcriptRes = await api.getTranscript(videoId)
-      const transcriptTime = Date.now() - transcriptStart
-      const { transcript, duration_minutes, cache_hit, fetch_ms } = transcriptRes
-      setTranscript(transcript)
-      setDuration(duration_minutes || null)
-      setTranscriptCacheHit(typeof cache_hit === "boolean" ? cache_hit : null)
-      setTranscriptFetchMs(typeof fetch_ms === "number" ? fetch_ms : transcriptTime)
+      let contentText = ""
+      if (sourceType === 'youtube') {
+        if (transcript && transcript.trim().length > 0) {
+          contentText = transcript
+          setTranscriptFetchMs(0)
+        } else {
+          const transcriptStart = Date.now()
+          const transcriptRes = await api.getTranscript(videoId as string)
+          const transcriptTime = Date.now() - transcriptStart
+          const { transcript, duration_minutes, cache_hit, fetch_ms } = transcriptRes
+          contentText = transcript
+          setTranscript(transcript)
+          setDuration(duration_minutes || null)
+          setTranscriptCacheHit(typeof cache_hit === "boolean" ? cache_hit : null)
+          setTranscriptFetchMs(typeof fetch_ms === "number" ? fetch_ms : transcriptTime)
+        }
+      } else if (sourceType === 'pdf') {
+        const readStart = Date.now()
+        onStageChange?.('extract')
+        const extractRes = await api.extractPdfInsights(pdfFile as File, mode, sessionId, userId)
+        setTranscript(null)
+        setDuration(null)
+        setTranscriptCacheHit(null)
+        setTranscriptFetchMs(Date.now() - readStart)
+        const extractTime = Date.now() - readStart
+        setExtractMs(extractTime)
+        setExtractCacheHit(typeof extractRes.cache_hit === "boolean" ? extractRes.cache_hit : null)
+        const totalTime = Date.now() - start
+        setProcessingTime(totalTime)
+        setWordCount(extractRes.word_count || 0)
+        onStageChange?.('finalizing')
+        setTimeout(() => {
+          setResults(extractRes.insights)
+          setLoading(false)
+          onProcessingChange?.(false)
+        }, 500)
+        return
+      } else {
+        const readStart = Date.now()
+        onStageChange?.('extract')
+        const extractRes = await api.extractArticleInsights(articleUrl, mode, sessionId, userId)
+        setTranscript(null)
+        setDuration(null)
+        setTranscriptCacheHit(null)
+        setTranscriptFetchMs(Date.now() - readStart)
+        const extractTime = Date.now() - readStart
+        setExtractMs(extractTime)
+        setExtractCacheHit(typeof extractRes.cache_hit === "boolean" ? extractRes.cache_hit : null)
+        const totalTime = Date.now() - start
+        setProcessingTime(totalTime)
+        setWordCount(extractRes.word_count || 0)
+        onStageChange?.('finalizing')
+        setTimeout(() => {
+          setResults(extractRes.insights)
+          setLoading(false)
+          onProcessingChange?.(false)
+        }, 500)
+        return
+      }
 
       onStageChange?.('extract')
       const extractStart = Date.now()
-      const extractRes = await api.extractInsights(transcript, mode)
+      const extractRes = await api.extractInsights(contentText, mode, questions)
       const extractTime = Date.now() - extractStart
       setExtractMs(extractTime)
       setExtractCacheHit(typeof extractRes.cache_hit === "boolean" ? extractRes.cache_hit : null)
@@ -62,7 +138,7 @@ export function ProcessButton({ onProcessingChange, onStageChange }: ProcessButt
       }, 500)
     } catch (err: any) {
       console.error(err)
-      setError(err.message || "Failed to process video.")
+      setError(err.message || "Failed to process content.")
       setLoading(false)
       onProcessingChange?.(false)
     }
@@ -73,12 +149,20 @@ export function ProcessButton({ onProcessingChange, onStageChange }: ProcessButt
       <Button 
         variant="default" 
         className="w-full bg-white text-black py-3.5 rounded-lg hover:bg-white/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-sm font-medium h-auto"
-        disabled={!videoId || loading}
+        disabled={!canProcess || loading}
         onClick={handleProcess}
+        title={modeHint[mode]}
       >
-        {loading ? "Processing..." : "Process Video"}
+        {loading ? "Building your output..." : sourceType === 'youtube' ? 'Process Video' : modeCta[mode]}
       </Button>
-      {error && <p className="text-center text-sm text-danger mt-3">{error}</p>}
+      <p className="mt-2 text-xs text-white/45" title={modeHint[mode]}>
+        {modeHint[mode]} · {sourceHint[sourceType]}
+      </p>
+      {error && (
+        <p className="text-center text-sm text-danger mt-3">
+          {error || "We hit a temporary issue. Please retry in a few seconds."}
+        </p>
+      )}
     </div>
   )
 }
