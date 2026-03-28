@@ -3,6 +3,7 @@ import { useAppStore } from '@/lib/store'
 import { Button } from '@/components/ui/Button'
 import { Zap } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
+import { backendUrl } from '@/lib/backendUrl'
 
 export function ConnectionBanner() {
   const { isConnected, sessionId, userId, getCurrentUserId } = useAppStore()
@@ -12,7 +13,7 @@ export function ConnectionBanner() {
     const resolvedUserId = userId || await getCurrentUserId()
     const userQuery = resolvedUserId ? `&user_id=${encodeURIComponent(resolvedUserId)}` : ""
     const frontendUrl = encodeURIComponent(window.location.origin)
-    window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/auth/notion?session_id=${sessionId}${userQuery}&frontend_url=${frontendUrl}`
+    window.location.href = `${backendUrl('/auth/notion')}?session_id=${sessionId}${userQuery}&frontend_url=${frontendUrl}`
   }
 
   return (

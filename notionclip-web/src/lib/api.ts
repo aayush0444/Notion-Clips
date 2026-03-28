@@ -13,8 +13,7 @@ import {
   ExportMarkdownResponse,
   SynthesisResponse
 } from './types'
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://notion-clips-production.up.railway.app'
+import { API_BASE, backendUrl } from './backendUrl'
 
 async function parseError(res: Response): Promise<string> {
   let detail = `HTTP ${res.status}`
@@ -43,7 +42,7 @@ export async function exportMarkdown(
     source_url: sourceUrl,
   })
   const res = await fetch(
-    `${process.env.NEXT_PUBLIC_BACKEND_URL}/export/markdown?${params}`,
+    `${backendUrl('/export/markdown')}?${params}`,
     { method: "GET" }
   )
   if (!res.ok) {
@@ -55,15 +54,17 @@ export async function exportMarkdown(
 export async function smartWatchQuickCheck(
   videoUrl: string,
   userQuestion: string,
-  sessionId: string
+  sessionId: string,
+  transcript?: string | null
 ): Promise<SmartWatchQuickResult> {
-  const res = await fetch(`${API_BASE}/smart-watch/quick-check`, {
+  const res = await fetch(backendUrl('/smart-watch/quick-check'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       video_url: videoUrl,
       user_question: userQuestion,
-      session_id: sessionId
+      session_id: sessionId,
+      transcript: transcript || null,
     })
   })
   if (!res.ok) {
@@ -79,7 +80,7 @@ export async function smartWatchDeepAnalysis(
   sessionId: string,
   verdict: string
 ): Promise<SmartWatchDeepResult> {
-  const res = await fetch(`${API_BASE}/smart-watch/deep-analysis`, {
+  const res = await fetch(backendUrl('/smart-watch/deep-analysis'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -101,7 +102,7 @@ export async function smartWatchHistory(
   userId?: string | null,
   limit: number = 20
 ): Promise<SmartWatchHistoryResponse> {
-  const res = await fetch(`${API_BASE}/smart-watch/history`, {
+  const res = await fetch(backendUrl('/smart-watch/history'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -123,7 +124,7 @@ export async function smartWatchAnalytics(
   userId?: string | null,
   payload?: Record<string, unknown>
 ): Promise<void> {
-  await fetch(`${API_BASE}/smart-watch/analytics`, {
+  await fetch(backendUrl('/smart-watch/analytics'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -139,7 +140,7 @@ export async function smartWatchDashboard(
   sessionId: string,
   userId?: string | null
 ): Promise<SmartWatchDashboardResponse> {
-  const res = await fetch(`${API_BASE}/smart-watch/dashboard`, {
+  const res = await fetch(backendUrl('/smart-watch/dashboard'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

@@ -65,6 +65,7 @@ class SmartWatchQuickRequest(BaseModel):
     video_url: str
     user_question: str
     session_id: str
+    transcript: Optional[str] = None
 
 
 class SmartWatchQuickResult(BaseModel):
@@ -415,22 +416,23 @@ async def smart_watch_quick_check(payload: SmartWatchQuickRequest):
         return JSONResponse(status_code=400, content={"error": "invalid_video_url", "message": "Could not extract video id"})
 
     cache_hit = False
-    transcript: Optional[str] = None
+    transcript: Optional[str] = (payload.transcript or "").strip() or None
     duration_minutes: float = 0.0
 
-    try:
-        cached = get_cached_transcript(video_id)
-    except Exception as exc:
-        logger.warning("Smart Watch cache read failed: %s", exc)
-        cached = None
-
-    if cached and cached.get("transcript"):
-        transcript = str(cached.get("transcript", "")).strip()
-        cache_hit = bool(transcript)
+    if not transcript:
         try:
-            duration_minutes = float(cached.get("duration_minutes") or 0.0)
-        except (TypeError, ValueError):
-            duration_minutes = 0.0
+            cached = get_cached_transcript(video_id)
+        except Exception as exc:
+            logger.warning("Smart Watch cache read failed: %s", exc)
+            cached = None
+
+        if cached and cached.get("transcript"):
+            transcript = str(cached.get("transcript", "")).strip()
+            cache_hit = bool(transcript)
+            try:
+                duration_minutes = float(cached.get("duration_minutes") or 0.0)
+            except (TypeError, ValueError):
+                duration_minutes = 0.0
 
     if not transcript:
         try:

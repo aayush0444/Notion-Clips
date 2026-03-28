@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import { Mode } from './types'
 import { getSupabaseClient } from './supabaseClient'
+import { backendUrl } from './backendUrl'
 
 const APP_STATE_KEY = "notionclip_app_state_v1"
 
@@ -194,7 +195,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const cleanPath = window.location.pathname || '/app'
       window.history.replaceState({}, '', cleanPath)
     } else {
-      fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/notion/status/${id}`)
+      fetch(backendUrl(`/auth/notion/status/${id}`))
         .then(res => res.json())
         .then(data => {
           if (data.has_token) setIsConnected(true)
@@ -210,11 +211,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const signInWithGoogle = async () => {
     const supabase = getSupabaseClient()
     const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/app` : undefined
-    const { error } = await supabase.auth.signInWithOAuth({
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo }
+      options: {
+        redirectTo,
+        skipBrowserRedirect: true,
+      }
     })
     if (error) throw error
+    if (data?.url && typeof window !== "undefined") {
+      window.location.assign(data.url)
+    }
   }
 
   const signOutGoogle = async () => {

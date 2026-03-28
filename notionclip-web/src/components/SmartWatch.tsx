@@ -66,7 +66,7 @@ function friendlyErrorText() {
 }
 
 export function SmartWatch({ videoUrl, sessionId }: SmartWatchProps) {
-  const { userId, setTranscript, setDuration, setTranscriptCacheHit, setTranscriptFetchMs } = useAppStore()
+  const { userId, transcript, setTranscript, setDuration, setTranscriptCacheHit, setTranscriptFetchMs } = useAppStore()
   const [enabled, setEnabled] = useState<boolean>(true)
   const [localSessionId, setLocalSessionId] = useState<string | null>(null)
   const [question, setQuestion] = useState("")
@@ -212,7 +212,7 @@ export function SmartWatch({ videoUrl, sessionId }: SmartWatchProps) {
     setRecentQuestions((prev) => saveRecent(question, prev))
 
     try {
-      const quick = await smartWatchQuickCheck(videoUrl.trim(), question.trim(), effectiveSessionId)
+      const quick = await smartWatchQuickCheck(videoUrl.trim(), question.trim(), effectiveSessionId, transcript)
       setQuickResult(quick)
       setCheckingSince(null)
       setState("VERDICT_SHOWN")

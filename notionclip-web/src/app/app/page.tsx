@@ -17,6 +17,7 @@ import { QnASection } from "@/components/app/QnASection"
 import { useAppStore } from "@/lib/store"
 import { api } from "@/lib/api"
 import { Button } from "@/components/ui/Button"
+import { backendUrl } from "@/lib/backendUrl"
 
 const loadingMessagesByStage = {
   transcript: "Reading source context...",
@@ -121,7 +122,7 @@ export default function AppPage() {
   const handleConnectNotion = () => {
     if (!sessionId) return
     const frontendUrl = encodeURIComponent(window.location.origin)
-    window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/auth/notion?session_id=${sessionId}&frontend_url=${frontendUrl}`
+    window.location.href = `${backendUrl('/auth/notion')}?session_id=${sessionId}&frontend_url=${frontendUrl}`
   }
 
   const saveLabelByMode = {

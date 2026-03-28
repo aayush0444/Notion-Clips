@@ -8,6 +8,7 @@ import os
 import secrets
 import logging
 from typing import Dict, Optional
+from urllib.parse import urlencode
 
 import requests
 from dotenv import load_dotenv
@@ -28,6 +29,21 @@ NOTION_OAUTH_URL     = "https://api.notion.com/v1/oauth/authorize"
 NOTION_TOKEN_URL     = "https://api.notion.com/v1/oauth/token"
 
 router = APIRouter(prefix="/auth/notion", tags=["notion_oauth"])
+
+
+def _safe_frontend_base(frontend_url: Optional[str]) -> str:
+    url = frontend_url or os.getenv("FRONTEND_URL", "http://localhost:3000")
+    if not isinstance(url, str) or not url.strip():
+        return "http://localhost:3000"
+    return url.rstrip("/")
+
+
+def _frontend_redirect(frontend_url: Optional[str], connected: bool, error: Optional[str] = None) -> RedirectResponse:
+    base = _safe_frontend_base(frontend_url)
+    query: Dict[str, str] = {"connected": "true" if connected else "false"}
+    if error:
+        query["error"] = error
+    return RedirectResponse(url=f"{base}/app?{urlencode(query)}")
 
 
 def _require_oauth_env() -> None:
@@ -172,11 +188,30 @@ def _find_or_create_root_page(token: str) -> str:
         if isinstance(page_id, str) and page_id:
             logger.info("Created root page: %s", page_id)
             return page_id
-    logger.error(
+    logger.warning(
         "Failed to create root page status=%s body=%s",
         create_resp.status_code,
         create_resp.text[:400],
     )
+
+    # Fallback: pick any accessible page returned by search.
+    fallback_resp = requests.post(
+        "https://api.notion.com/v1/search",
+        headers=headers,
+        json={"filter": {"property": "object", "value": "page"}},
+        timeout=10,
+    )
+    if fallback_resp.ok:
+        results = fallback_resp.json().get("results", [])
+        for result in results:
+            if not isinstance(result, dict):
+                continue
+            page_id = result.get("id", "")
+            if isinstance(page_id, str) and page_id:
+                logger.info("Using fallback accessible page as root: %s", page_id)
+                return page_id
+
+    logger.error("Unable to resolve root page from Notion OAuth token")
 
     return ""
 
@@ -252,14 +287,16 @@ def start_auth(
         params.get("user_id"),
         params.get("frontend_url"),
     )
-    auth_url = (
-        f"{NOTION_OAUTH_URL}"
-        f"?client_id={NOTION_CLIENT_ID}"
-        f"&response_type=code"
-        f"&owner=user"
-        f"&redirect_uri={NOTION_REDIRECT_URI}"
-        f"&state={state}"
+    auth_query = urlencode(
+        {
+            "client_id": NOTION_CLIENT_ID,
+            "response_type": "code",
+            "owner": "user",
+            "redirect_uri": NOTION_REDIRECT_URI,
+            "state": state,
+        }
     )
+    auth_url = f"{NOTION_OAUTH_URL}?{auth_query}"
     return RedirectResponse(url=auth_url)
 
 
@@ -271,6 +308,7 @@ def oauth_callback(
     _require_oauth_env()
     state_payload = _decode_state(state)
     session_id    = state_payload["session_id"]
+    frontend_url = state_payload.get("frontend_url")
 
     # Exchange code for token
     auth_header = base64.b64encode(
@@ -290,12 +328,14 @@ def oauth_callback(
 
     logger.info("Token exchange status=%s", response.status_code)
     if response.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"Token exchange failed: {response.text}")
+        logger.error("Token exchange failed: %s", response.text[:500])
+        return _frontend_redirect(frontend_url, connected=False, error="token_exchange_failed")
 
     data         = response.json()
     access_token = data.get("access_token", "")
     if not access_token:
-        raise HTTPException(status_code=502, detail="Notion response missing access_token.")
+        logger.error("Notion response missing access token")
+        return _frontend_redirect(frontend_url, connected=False, error="missing_access_token")
 
     logger.info(
         "Notion OAuth success workspace=%s owner=%s",
@@ -306,26 +346,19 @@ def oauth_callback(
     # Create page structure
     root_page_id  = _find_or_create_root_page(access_token)
     if not root_page_id:
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "Notion authorization succeeded but failed to find/create 'NotionClip Notes' page. "
-                "Ensure the integration has page creation permissions."
-            ),
-        )
+        return _frontend_redirect(frontend_url, connected=False, error="root_page_unavailable")
 
     study_page_id = _create_child_page(access_token, root_page_id, "Study Notes", "📚")
     work_page_id  = _create_child_page(access_token, root_page_id, "Work Briefs", "💼")
     quick_page_id = _create_child_page(access_token, root_page_id, "Quick Saves", "⚡")
 
-    if not study_page_id or not work_page_id or not quick_page_id:
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "Notion authorization succeeded but failed to initialize one or more mode pages "
-                "(Study Notes / Work Briefs / Quick Saves)."
-            ),
-        )
+    # Fallback to root page if one or more child pages cannot be initialized.
+    if not study_page_id:
+        study_page_id = root_page_id
+    if not work_page_id:
+        work_page_id = root_page_id
+    if not quick_page_id:
+        quick_page_id = root_page_id
 
     logger.info(
         "Saving session=%s root=%s study=%s work=%s quick=%s",
@@ -346,12 +379,7 @@ def oauth_callback(
         user_id=state_payload.get("user_id"),
     )
 
-    frontend_url = state_payload.get("frontend_url") or os.getenv("FRONTEND_URL", "http://localhost:3000")
-    if isinstance(frontend_url, str):
-        frontend_url = frontend_url.rstrip("/")
-    else:
-        frontend_url = "http://localhost:3000"
-    return RedirectResponse(url=f"{frontend_url}/app?connected=true")
+    return _frontend_redirect(frontend_url, connected=True)
 
 
 @router.get("/status/{session_id}", response_model=AuthStatusResponse)
