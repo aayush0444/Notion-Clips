@@ -4,11 +4,13 @@ function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "")
 }
 
-export const API_BASE = trimTrailingSlash(
+const rawApiBase = (
   process.env.NEXT_PUBLIC_API_URL ||
-    process.env.NEXT_PUBLIC_BACKEND_URL ||
-    DEFAULT_API_BASE
-)
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  DEFAULT_API_BASE
+).trim()
+
+export const API_BASE = trimTrailingSlash(rawApiBase)
 
 export function backendUrl(path: string): string {
   if (!path) return API_BASE
