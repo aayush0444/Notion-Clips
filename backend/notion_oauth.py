@@ -12,7 +12,7 @@ from urllib.parse import urlencode
 
 import requests
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
@@ -43,10 +43,14 @@ def _frontend_redirect(frontend_url: Optional[str], connected: bool, error: Opti
     return RedirectResponse(url=f"{base}/app?{urlencode(query)}")
 
 
-def _oauth_config() -> tuple[str, str, str]:
+def _oauth_config(request: Optional[Request] = None) -> tuple[str, str, str]:
     client_id = os.getenv("NOTION_CLIENT_ID")
     client_secret = os.getenv("NOTION_CLIENT_SECRET")
     redirect_uri = os.getenv("NOTION_REDIRECT_URI")
+    if not redirect_uri and request is not None:
+        base_url = str(request.base_url).rstrip("/")
+        redirect_uri = f"{base_url}/auth/notion/callback"
+        logger.warning("NOTION_REDIRECT_URI missing; using request base %s", redirect_uri)
     missing = [
         name
         for name, value in (
@@ -284,9 +288,10 @@ def _create_child_page(token: str, parent_id: str, title: str, emoji: str) -> st
 
 @router.get("", response_model=None)
 def start_auth(
+    request: Request,
     params: Dict[str, Optional[str]] = Depends(_auth_params),
 ) -> RedirectResponse:
-    client_id, _, redirect_uri = _oauth_config()
+    client_id, _, redirect_uri = _oauth_config(request)
     state = _encode_state(
         params["session_id"],
         params["notion_page_id"],
@@ -308,10 +313,11 @@ def start_auth(
 
 @router.get("/callback", response_model=None)
 def oauth_callback(
+    request: Request,
     code:  str = Query(...),
     state: str = Query(...),
 ) -> RedirectResponse:
-    client_id, client_secret, redirect_uri = _oauth_config()
+    client_id, client_secret, redirect_uri = _oauth_config(request)
     state_payload = _decode_state(state)
     session_id    = state_payload["session_id"]
     frontend_url = state_payload.get("frontend_url")
