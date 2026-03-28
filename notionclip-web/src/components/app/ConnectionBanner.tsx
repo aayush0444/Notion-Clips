@@ -11,7 +11,8 @@ export function ConnectionBanner() {
     if (!sessionId) return
     const resolvedUserId = userId || await getCurrentUserId()
     const userQuery = resolvedUserId ? `&user_id=${encodeURIComponent(resolvedUserId)}` : ""
-    window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/auth/notion?session_id=${sessionId}${userQuery}`
+    const frontendUrl = encodeURIComponent(window.location.origin)
+    window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/auth/notion?session_id=${sessionId}${userQuery}&frontend_url=${frontendUrl}`
   }
 
   return (

@@ -11,7 +11,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from models import (
     ActionItemList, MeetingSummary, VideoInsights,
-    StudyNotes, WorkBrief, _ChunkExtract
+    StudyNotes, WorkBrief, PreWatchVerdict, _ChunkExtract, SynthesisAnalysis
 )
 from backend.supabase_client import get_session
 
@@ -21,6 +21,107 @@ logger = logging.getLogger("notionclips.gemini")
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_MODEL    = "openai/gpt-4o-mini"
+
+KNOWLEDGE_MAP_PROMPT = """
+You are building a knowledge map from multiple learning sources.
+The student wants to learn: {learning_goal}
+Their current level: {student_level}
+
+You have {n} sources:
+{source_list}
+(each formatted as: SOURCE {i} [{type}] "{title}": {extracted_text})
+
+Your task:
+Build a structured map of how knowledge is distributed
+across these sources. Be analytical, not summarising.
+
+Rules:
+- concepts: identify 3-8 key concepts the student must
+  understand to achieve their learning goal.
+  For each concept: which source explains it BEST and where
+  exactly (timestamp for video, page reference for PDF).
+- agreements: what do 2+ sources say the same thing about?
+  These are high-confidence facts. List as clear statements.
+- contradictions: where do sources say different things?
+  Do NOT hide contradictions — they are learning opportunities.
+  For each: what source A says, what source B says, and if
+  you can determine which is more accurate, state why.
+- knowledge_gaps: what does the student need to know that
+  NONE of these sources cover? Be honest about gaps.
+
+Respond ONLY in valid JSON matching KnowledgeMap schema.
+No markdown fences. No extra text.
+"""
+
+TUTOR_TEACHING_PROMPT = """
+You are a world-class tutor. You have studied all the provided
+sources deeply. Your student wants to learn: {learning_goal}
+Their level: {student_level}
+
+Knowledge map you built:
+{knowledge_map_json}
+
+Sources available:
+{source_list}
+
+Now TEACH this topic. Not summarise — TEACH.
+
+Rules:
+- foundation: the single most important thing the student
+  must understand first. Use the clearest explanation from
+  any source. Cite exactly which source and where.
+- core_teaching: teach the main concept in 3-5 paragraphs.
+  Weave in evidence from multiple sources naturally.
+  When you use a specific source's explanation, note it.
+  Write as a tutor speaks — clear, direct, no jargon without
+  explanation. Maximum 500 words.
+- core_citations: list every source moment you drew from.
+  Include timestamp (video) or page reference (PDF).
+  Quote max 20 words from that exact moment.
+- common_misconceptions: 2-4 real mistakes students make
+  with THIS specific topic. Be precise and technical.
+- knowledge_check: exactly 3 questions:
+  Question 1: recall (easy) — tests basic retention
+  Question 2: application (medium) — can they use it?
+  Question 3: synthesis (hard) — can they connect concepts?
+  Questions only. No answers. Each gets a unique UUID.
+- next_steps: 3-5 specific topics to study after this.
+  Not generic. Based on what these sources revealed.
+
+Respond ONLY in valid JSON matching TutorOutput schema.
+No markdown fences. No extra text.
+"""
+
+ANSWER_EVALUATION_PROMPT = """
+You are evaluating a student's answer to a knowledge check
+question. Be honest and kind — like a good tutor.
+
+The student is learning: {learning_goal}
+The question was ({difficulty} / {type}): {question}
+The student answered: {user_answer}
+
+Source material supporting the correct answer:
+{relevant_source_content}
+
+Evaluate:
+1. Is the answer correct, partially correct, or incorrect?
+2. What did they understand well? (even if wrong overall)
+3. What specific misconception do they have, if any?
+   Be precise — "they confused X with Y" not "they are wrong"
+4. If incorrect: give a one-sentence correction grounded in
+   the source material. Cite which source confirms this.
+5. Are they ready to advance or should they revisit?
+
+Rules:
+- feedback: one sentence, warm but direct. Start with what
+  they got right before addressing what is wrong.
+- Never say "Great job!" or other empty praise.
+- correction must cite specific source content.
+- cited_source_index: which source confirms the right answer.
+
+Respond ONLY in valid JSON matching QuestionEvaluation schema.
+No markdown fences. No extra text.
+"""
 
 
 # ─── Model Provider ───────────────────────────────────────────────────────────
@@ -124,6 +225,35 @@ MAX_PARALLEL_CHUNKS = 3
 
 # ─── Chunk Processing ─────────────────────────────────────────────────────────
 
+STUDY_EXTRACT_VOICE = (
+    "Voice: disciplined tutor. Prioritise conceptual clarity, precision, and exam usefulness. "
+    "Prefer exact terminology over vague language."
+)
+WORK_EXTRACT_VOICE = (
+    "Voice: senior operator. Prioritise decisions, tradeoffs, ROI, implementation risk, and next actions."
+)
+QUICK_EXTRACT_VOICE = (
+    "Voice: sharp explainer friend. Prioritise signal density, surprising insights, and plain language."
+)
+
+
+def _mode_extract_voice(mode: str) -> str:
+    return {
+        "study": STUDY_EXTRACT_VOICE,
+        "work": WORK_EXTRACT_VOICE,
+        "quick": QUICK_EXTRACT_VOICE,
+    }.get(mode, QUICK_EXTRACT_VOICE)
+
+
+def _source_context(source_type: str) -> str:
+    source = (source_type or "video").strip().lower()
+    guidance = {
+        "video": "Content source: video. Prioritize explained concepts, demonstrations, and spoken examples.",
+        "pdf": "Content source: pdf. Prioritize structured knowledge, definitions, tables, and documented data.",
+        "article": "Content source: article. Prioritize argument quality, evidence, and claim support.",
+    }
+    return guidance.get(source, guidance["video"])
+
 def _split_into_chunks(transcript: str) -> List[str]:
     """Split a long transcript into overlapping chunks."""
     words = transcript.split()
@@ -198,13 +328,17 @@ def _select_relevant_qa_chunks(
     return [item[2] for item in top]
 
 
-def _extract_chunk(chunk_text: str, chunk_label: str, mode: str) -> _ChunkExtract:
+def _extract_chunk(chunk_text: str, chunk_label: str, mode: str, source_type: str = "video") -> _ChunkExtract:
     """Extract raw facts from a single transcript chunk."""
     llm = get_model().with_structured_output(_ChunkExtract)
+    voice = _mode_extract_voice(mode)
 
+    source_context = _source_context(source_type)
     if mode == "study":
         prompt = f"""
 You are extracting raw content from section "{chunk_label}" of a longer video transcript.
+{voice}
+{source_context}
 
 Your ONLY job is to pull out what is explicitly in this section.
 Do NOT add external knowledge. Do NOT infer. Do NOT fill gaps.
@@ -226,6 +360,8 @@ TRANSCRIPT SECTION:
     elif mode == "work":
         prompt = f"""
 You are extracting raw content from section "{chunk_label}" of a longer professional video transcript.
+{voice}
+{source_context}
 
 Do NOT add external knowledge. Do NOT infer. Only what is explicitly stated.
 
@@ -243,6 +379,8 @@ TRANSCRIPT SECTION:
     else:  # quick
         prompt = f"""
 Extract the most interesting and surprising facts from this transcript section.
+{voice}
+{source_context}
 Only include what is explicitly stated. Do not add external knowledge.
 
 - facts: Interesting or surprising statements.
@@ -258,7 +396,7 @@ TRANSCRIPT SECTION:
     return llm.invoke(prompt)
 
 
-def _extract_chunks_parallel(chunks: List[str], mode: str) -> List[_ChunkExtract]:
+def _extract_chunks_parallel(chunks: List[str], mode: str, source_type: str = "video") -> List[_ChunkExtract]:
     """Extract chunk insights concurrently while preserving order."""
     if not chunks:
         return []
@@ -269,7 +407,7 @@ def _extract_chunks_parallel(chunks: List[str], mode: str) -> List[_ChunkExtract
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
-            executor.submit(_extract_chunk, chunk, f"Section {i + 1} of {total}", mode): i
+            executor.submit(_extract_chunk, chunk, f"Section {i + 1} of {total}", mode, source_type): i
             for i, chunk in enumerate(chunks)
         }
         for future in as_completed(futures):
@@ -283,7 +421,8 @@ def _synthesize_study_notes(
     chunk_results: List[_ChunkExtract],
     profile: dict,
     transcript_opening: str,
-    has_timestamps: bool = False
+    has_timestamps: bool = False,
+    source_type: str = "video",
 ) -> StudyNotes:
     """Synthesize chunk extractions into a final StudyNotes object."""
 
@@ -312,6 +451,8 @@ ALL POTENTIAL QUESTIONS ({len(all_questions)} items):
     llm = get_model().with_structured_output(StudyNotes)
     prompt = f"""
 You are synthesizing raw extracted data from a {profile['label']} video into structured study notes.
+{STUDY_EXTRACT_VOICE}
+{_source_context(source_type)}
 
 The data was extracted from the video in chunks to ensure nothing was missed.
 Your job: organise it into a coherent, accurate, genuinely useful study resource.
@@ -347,7 +488,8 @@ def _synthesize_work_brief(
     chunk_results: List[_ChunkExtract],
     profile: dict,
     transcript_opening: str,
-    has_timestamps: bool = False
+    has_timestamps: bool = False,
+    source_type: str = "video",
 ) -> WorkBrief:
     """Synthesize chunk extractions into a final WorkBrief object."""
 
@@ -376,10 +518,12 @@ ALL WARNINGS / ANTI-PATTERNS ({len(all_mistakes)} items):
     llm = get_model().with_structured_output(WorkBrief)
     prompt = f"""
 You are synthesizing raw extracted data from a {profile['label']} professional video into a work brief.
+{WORK_EXTRACT_VOICE}
+{_source_context(source_type)}
 
 CRITICAL RULES:
 1. ONLY use information from the extracted data. Do NOT add external knowledge.
-2. watch_or_skip: MUST follow this exact format:
+2. recommendation: MUST follow this exact format:
    "Watch — [one sentence reason why it is worth watching]"
    or
    "Skip — [one sentence reason why it is not worth the time]".
@@ -404,17 +548,33 @@ CRITICAL RULES:
 def _extract_single_pass_study(
     transcript: str,
     profile: dict,
-    has_timestamps: bool = False
+    has_timestamps: bool = False,
+    source_type: str = "video",
+    questions: Optional[List[str]] = None,
 ) -> StudyNotes:
     """Single-pass study extraction for short/medium videos."""
     llm = get_model().with_structured_output(StudyNotes)
 
+    questions_context = ""
+    if questions:
+        questions_list = "\n".join([f"- {q}" for q in questions])
+        questions_context = f"""
+IMPORTANT USER FOCUS QUESTIONS:
+The user is specifically interested in these questions:
+{questions_list}
+
+When extracting, PRIORITIZE answering these questions. Make sure the notes,
+key_facts, and self_test directly address what the user wants to learn about.
+"""
+
     prompt = f"""
 You are an expert note-taker watching a {profile['label']} video.
+{STUDY_EXTRACT_VOICE}
+{_source_context(source_type)}
 Your job: produce study notes so precise and complete that a student can revise
 from them without watching the video — while also knowing exactly where to go back
 in the video if they need more context.
-
+{questions_context}
 THIS IS A {profile['label'].upper()} VIDEO. Scale your output accordingly.
 
 ABSOLUTE RULES — violating these makes the output useless:
@@ -451,22 +611,38 @@ VIDEO TRANSCRIPT:
 def _extract_single_pass_work(
     transcript: str,
     profile: dict,
-    has_timestamps: bool = False
+    has_timestamps: bool = False,
+    source_type: str = "video",
+    questions: Optional[List[str]] = None,
 ) -> WorkBrief:
     """Single-pass work extraction for short/medium videos."""
     llm = get_model().with_structured_output(WorkBrief)
 
+    questions_context = ""
+    if questions:
+        questions_list = "\n".join([f"- {q}" for q in questions])
+        questions_context = f"""
+IMPORTANT USER FOCUS QUESTIONS:
+The user is specifically interested in these questions:
+{questions_list}
+
+When analyzing this video, PRIORITIZE answering these questions and assessing
+whether this video is valuable for them based on their specific interests.
+"""
+
     prompt = f"""
 You are a senior professional who just watched this {profile['label']} video
+{WORK_EXTRACT_VOICE}
+{_source_context(source_type)}
 so your colleagues don't have to. Produce a brief they can read in 2 minutes
 and know exactly whether to watch it and what to do about it.
-
+{questions_context}
 THIS IS A {profile['label'].upper()} VIDEO. Scale output accordingly.
 
 ABSOLUTE RULES:
 1. ONLY include what is explicitly stated in the transcript.
    Do NOT add knowledge the video didn't cover. Do NOT fill gaps.
-2. watch_or_skip: MUST follow this exact format:
+2. recommendation: MUST follow this exact format:
    "Watch — [one sentence reason why it is worth watching]"
    or
    "Skip — [one sentence reason why it is not worth the time]".
@@ -491,10 +667,24 @@ VIDEO TRANSCRIPT:
 def _extract_single_pass_quick(
     transcript: str,
     profile: dict,
-    sections: dict
+    sections: dict,
+    source_type: str = "video",
+    questions: Optional[List[str]] = None,
 ) -> VideoInsights:
     """Single-pass quick mode extraction."""
     llm = get_model().with_structured_output(VideoInsights)
+
+    questions_context = ""
+    if questions:
+        questions_list = "\n".join([f"- {q}" for q in questions])
+        questions_context = f"""
+IMPORTANT USER FOCUS QUESTIONS:
+The user is specifically interested in these questions:
+{questions_list}
+
+When extracting key insights, PRIORITIZE answering these questions and highlight
+what this video teaches about their areas of interest.
+"""
 
     sections_instruction = []
     if not sections.get("summary", True):
@@ -511,8 +701,10 @@ def _extract_single_pass_quick(
 
     prompt = f"""
 You are a brilliant, well-informed friend who just watched this {profile['label']} video.
+{QUICK_EXTRACT_VOICE}
+{_source_context(source_type)}
 Explain it to someone who has 2 minutes and zero patience.
-
+{questions_context}
 THIS IS A {profile['label'].upper()} VIDEO.
 key_takeaways: scale to video length — {profile['key_facts']} items is appropriate.
 Do not cap at 7 if the video is long.
@@ -533,24 +725,28 @@ VIDEO TRANSCRIPT:
 
 # ─── Main Entry Point ─────────────────────────────────────────────────────────
 
-def extract_video_insights(
-    transcript: str,
+def extract_insights(
+    content: str,
     mode: str = "study",
     sections: dict = None,
-    duration_minutes: float = 0
+    duration_minutes: float = 0,
+    source_type: str = "video",
+    questions: Optional[List[str]] = None,
 ) -> Union[StudyNotes, WorkBrief, VideoInsights]:
     """
-    Extract insights from a YouTube transcript.
+    Extract insights from source content.
 
     Automatically scales output depth to video length.
     Uses chunked processing for long videos (>8000 words) to prevent
     truncation and hallucination.
 
     Args:
-        transcript:        full transcript text (with [MM:SS] timestamp markers if available)
+        content:           full content text to analyze
         mode:              "study" | "work" | "quick"
         sections:          dict of which sections to include (used for quick mode only)
         duration_minutes:  video duration in minutes (for metadata, not used in logic)
+        source_type:       "video" | "pdf" | "article"
+        questions:         optional list of user questions to focus extraction
 
     Returns:
         StudyNotes for mode="study"
@@ -563,6 +759,8 @@ def extract_video_insights(
             "topics": True, "action_items": True
         }
 
+    source_type = (source_type or "video").strip().lower()
+    transcript = content
     word_count = len(transcript.split())
     profile    = _get_length_profile(word_count)
 
@@ -570,29 +768,29 @@ def extract_video_insights(
     # These are only present when the scraping method succeeded.
     # This flag is passed into prompts — if False, AI is explicitly told
     # NOT to add timestamps, preventing hallucinated (≈12:30) on every fact.
-    has_timestamps = bool(re.search(r'\[\d{2}:\d{2}\]', transcript))
+    has_timestamps = source_type == "video" and bool(re.search(r'\[\d{2}:\d{2}\]', transcript))
 
     # Short/medium videos — single pass (fast, sufficient)
     if word_count <= CHUNKING_THRESHOLD:
         if mode == "study":
-            return _extract_single_pass_study(transcript, profile, has_timestamps)
+            return _extract_single_pass_study(transcript, profile, has_timestamps, source_type, questions)
         elif mode == "work":
-            return _extract_single_pass_work(transcript, profile, has_timestamps)
+            return _extract_single_pass_work(transcript, profile, has_timestamps, source_type, questions)
         else:
-            return _extract_single_pass_quick(transcript, profile, sections)
+            return _extract_single_pass_quick(transcript, profile, sections, source_type, questions)
 
     # Long videos — chunked extraction then synthesis
     # This prevents hallucination from transcript compression
     chunks = _split_into_chunks(transcript)
-    chunk_results = _extract_chunks_parallel(chunks, mode)
+    chunk_results = _extract_chunks_parallel(chunks, mode, source_type)
 
     # Use first ~500 words as opening context for title generation
     transcript_opening = " ".join(transcript.split()[:500])
 
     if mode == "study":
-        return _synthesize_study_notes(chunk_results, profile, transcript_opening, has_timestamps)
+        return _synthesize_study_notes(chunk_results, profile, transcript_opening, has_timestamps, source_type)
     elif mode == "work":
-        return _synthesize_work_brief(chunk_results, profile, transcript_opening, has_timestamps)
+        return _synthesize_work_brief(chunk_results, profile, transcript_opening, has_timestamps, source_type)
     else:
         # For quick mode on long videos, synthesize into VideoInsights
         all_facts = [f for c in chunk_results for f in c.facts + c.key_insights]
@@ -601,7 +799,23 @@ def extract_video_insights(
             f"KEY POINTS FROM ALL SECTIONS:\n" +
             "\n".join(f"• {f}" for f in all_facts[:60])
         )
-        return _extract_single_pass_quick(synthesized_text, profile, sections)
+        return _extract_single_pass_quick(synthesized_text, profile, sections, source_type, questions)
+
+
+def extract_video_insights(
+    transcript: str,
+    mode: str = "study",
+    sections: dict = None,
+    duration_minutes: float = 0
+) -> Union[StudyNotes, WorkBrief, VideoInsights]:
+    """Backward-compatible wrapper for existing callers."""
+    return extract_insights(
+        content=transcript,
+        mode=mode,
+        sections=sections,
+        duration_minutes=duration_minutes,
+        source_type="video",
+    )
 
 
 # ─── Meeting Mode (unchanged) ─────────────────────────────────────────────────
@@ -637,6 +851,32 @@ TRANSCRIPT:
     return structured_llm.invoke(prompt)
 
 
+def get_pre_watch_verdict(transcript: str, mode: str = "quick") -> PreWatchVerdict:
+    """Generate a pre-watch Watch/Skim/Skip decision from transcript evidence."""
+    structured_llm = get_model().with_structured_output(PreWatchVerdict)
+    mode_label = {"study": "student/study", "work": "professional/work", "quick": "time-constrained"}.get(mode, "general")
+    has_timestamps = bool(re.search(r"\[\d{2}:\d{2}\]", transcript))
+    context = transcript[:12000]
+
+    prompt = f"""
+You are deciding whether someone should watch this video based on transcript evidence.
+Audience intent mode: {mode_label}.
+
+Output rules:
+1) verdict must be exactly one of: Watch, Skim, Skip.
+2) why must be concise and practical (2-3 sentences, no fluff).
+3) best_for should name concrete user profile or use case.
+4) relevant_moments should contain 3-6 moments in 'MM:SS — reason' format.
+   {"Use nearby [MM:SS] markers from transcript." if has_timestamps else "Transcript has no timestamps, return relevant_moments as empty list []."}
+5) what_youll_miss_if_skip must be one sentence.
+6) Use only transcript evidence. Do not invent claims.
+
+TRANSCRIPT:
+{context}
+"""
+    return structured_llm.invoke(prompt)
+
+
 
 # ─── Q&A — Follow-up questions grounded in the transcript ────────────────────
 
@@ -668,6 +908,12 @@ You have full world knowledge. You go beyond the video naturally when it adds so
 
 Keep answers short and punchy — 2-3 sentences max unless they ask you to go deep. Match the user's energy. If they are curious, be more expansive. If they want quick, be quick."""
 
+MODE_CHAT_STYLE = {
+    "study": "Response style: teach like a top tutor. Start with the core idea, then one concrete example. Keep it crisp but educational.",
+    "work": "Response style: lead with recommendation/decision in first sentence, then one tradeoff. Keep it executive-friendly.",
+    "quick": "Response style: conversational and high-signal. Lead with the most interesting takeaway first.",
+}
+
 
 def answer_question(
     question: str,
@@ -693,7 +939,9 @@ def answer_question(
     else:
         retrieval_context = transcript[:6000]
 
+    style = MODE_CHAT_STYLE.get(mode, MODE_CHAT_STYLE["quick"])
     system_content = f"""{persona}
+{style}
 
 Use ONLY the retrieved transcript context below as ground truth for video-specific claims.
 If context is insufficient, say so briefly and ask one targeted follow-up question.
@@ -767,6 +1015,74 @@ def deduplicate_tasks(task_data: ActionItemList) -> ActionItemList:
             unique.append(item)
     task_data.items = unique
     return task_data
+
+
+def synthesize_insights(
+    sources: List[dict],
+    titles: List[str],
+    user_question: Optional[str] = None,
+) -> SynthesisAnalysis:
+    """
+    Synthesize insights from multiple sources using Gemini.
+    
+    Args:
+        sources: List of insight dicts (VideoInsights, StudyNotes, WorkBrief serialized)
+        titles: List of source titles (e.g., video names, article titles)
+        user_question: Optional user question that guided the extraction
+    
+    Returns:
+        SynthesisAnalysis with common themes, contradictions, and unified summary
+    """
+    if len(sources) < 2:
+        raise ValueError("Synthesis requires at least 2 sources")
+    
+    # Build source summaries for prompt
+    source_summaries = []
+    for i, (source, title) in enumerate(zip(sources, titles), 1):
+        summary_parts = []
+        summary_parts.append(f"SOURCE {i}: {title}")
+        
+        # Extract relevant fields based on source type
+        if isinstance(source, dict):
+            if "key_questions" in source and source["key_questions"]:
+                summary_parts.append(f"Key Questions: {'; '.join(source['key_questions'][:3])}")
+            if "insights" in source and source["insights"]:
+                summary_parts.append(f"Main Insights: {'; '.join(source['insights'][:3])}")
+            if "action_items" in source and source["action_items"]:
+                summary_parts.append(f"Action Items: {'; '.join(source['action_items'][:2])}")
+            if "summary" in source and source["summary"]:
+                summary_parts.append(f"Summary: {source['summary'][:300]}")
+        
+        source_summaries.append("\n".join(summary_parts))
+    
+    context_str = "\n\n".join(source_summaries)
+    focus_instruction = f"\nThe user's focus question was: {user_question}" if user_question else ""
+    
+    synthesis_prompt = f"""You are a master synthesizer of information across multiple sources.
+
+You have been given {len(sources)} sources to synthesize into one unified analysis:
+
+{context_str}
+{focus_instruction}
+
+Your task: Create a comprehensive synthesis that identifies:
+1. **Common Themes**: What appears consistently across 2+ sources (high-confidence facts)
+2. **Unique Insights**: What is unique to individual sources (adds depth)
+3. **Contradictions**: Where sources disagree or have different emphases
+4. **Synthesis Summary**: A cohesive narrative that integrates all sources
+5. **Recommended Order**: If reading/studying these sources, what order would make most sense? (list as indices: [0, 1, 2] for optimal flow)
+6. **Knowledge Gaps**: What important related topics were NOT covered?
+
+Be analytical and detailed. surface real contradictions or tensions.
+"""
+    
+    messages = [SystemMessage(content=synthesis_prompt)]
+    
+    # Use Gemini with structured output to SynthesisAnalysis
+    model_with_output = get_model().with_structured_output(SynthesisAnalysis)
+    response = model_with_output.invoke(messages)
+    
+    return response
 
 
 def calculate_accuracy(task_list: ActionItemList) -> float:

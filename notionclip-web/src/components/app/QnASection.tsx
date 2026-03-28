@@ -27,6 +27,18 @@ export function QnASection() {
 
   if (!transcript) return null
 
+  const chatPlaceholderByMode = {
+    study: "Ask for concept clarity, formula meaning, or exam-style explanation...",
+    work: "Ask for recommendation, tradeoff, or implementation decision...",
+    quick: "Ask for the fastest takeaway or a plain-language explanation...",
+  } as const
+
+  const chatLabelByMode = {
+    study: "Ask Study Questions",
+    work: "Ask Work Questions",
+    quick: "Ask Quick Questions",
+  } as const
+
   const handleSend = async (text: string) => {
     const trimmed = text.trim()
     if (!trimmed) return
@@ -52,13 +64,18 @@ export function QnASection() {
       }
       setMessages([...newMessages, { role: 'assistant', content: answer, notionEdited }])
     } catch (err: any) {
-      setError(err?.message || "Failed to get response.")
+      setError(err?.message || "Couldn’t get a clean answer right now. Please try again.")
     }
   }
 
   return (
     <div className="border-t border-white/5 pt-6 mt-6">
-      <div className="text-xs text-white/40 mb-3 uppercase tracking-wider">Ask Follow-up Questions</div>
+      <div
+        className="text-xs text-white/40 mb-3 uppercase tracking-wider"
+        title={chatPlaceholderByMode[mode]}
+      >
+        {chatLabelByMode[mode]}
+      </div>
       
       {messages.length > 0 && (
         <div className="mb-4 space-y-3 max-h-[200px] overflow-y-auto">
@@ -94,12 +111,14 @@ export function QnASection() {
               handleSend(input)
             }
           }}
-          placeholder="Ask about the video content..."
+          placeholder={chatPlaceholderByMode[mode]}
+          title={chatPlaceholderByMode[mode]}
           className="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white/90 placeholder:text-white/30 focus:outline-none focus:border-white/20 focus:bg-white/[0.07] transition-colors"
         />
         <button
           onClick={() => handleSend(input)}
           disabled={!input.trim()}
+          title="Send question"
           className="px-4 py-2.5 bg-white/10 hover:bg-white/15 disabled:opacity-40 disabled:cursor-not-allowed border border-white/10 rounded-lg transition-all"
         >
           <Send className="w-4 h-4 text-white/70" />

@@ -2,8 +2,9 @@
 import { useState } from 'react'
 import { StudyInsights } from '@/lib/types'
 import { ChevronDown, ChevronUp } from 'lucide-react'
+import ExportButtons from '@/components/ExportButtons'
 
-export function StudyModeView({ data }: { data: StudyInsights }) {
+export function StudyModeView({ data, sourceUrl }: { data: StudyInsights; sourceUrl?: string }) {
   const [expandedQuestions, setExpandedQuestions] = useState<number[]>([])
 
   const toggleQuestion = (index: number) => {
@@ -39,6 +40,13 @@ export function StudyModeView({ data }: { data: StudyInsights }) {
               <span>{fact}</span>
             </div>
           )) : <div className="text-white/50 text-sm">No key facts found.</div>}
+        </div>
+      </div>
+
+      <div className="bg-white/[0.03] border border-white/10 rounded-lg p-4">
+        <div className="text-xs text-white/40 mb-2 uppercase tracking-wider">How to Use These Notes</div>
+        <div className="text-sm text-white/70 leading-relaxed">
+          Revise in this order: core concept → formulas → key facts → self-test. If you miss a question, revisit the related key fact before moving forward.
         </div>
       </div>
 
@@ -83,20 +91,30 @@ export function StudyModeView({ data }: { data: StudyInsights }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <div className="text-xs text-white/40 mb-3 uppercase tracking-wider">Prerequisites</div>
-          <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
             {data.prerequisites?.length ? data.prerequisites.map((item, i) => (
-              <div key={i} className="text-sm text-white/70">{item}</div>
+              <div key={i} className="px-2.5 py-1 rounded-md border border-white/15 bg-white/[0.04] text-xs text-white/75">
+                {item}
+              </div>
             )) : <div className="text-white/50 text-sm">No prerequisites listed.</div>}
           </div>
         </div>
         <div>
           <div className="text-xs text-white/40 mb-3 uppercase tracking-wider">Further Reading</div>
-          <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
             {data.further_reading?.length ? data.further_reading.map((item, i) => (
-              <div key={i} className="text-sm text-white/70">{item}</div>
+              <div key={i} className="px-2.5 py-1 rounded-md border border-white/15 bg-white/[0.04] text-xs text-white/75">
+                {item}
+              </div>
             )) : <div className="text-white/50 text-sm">No further reading links found.</div>}
           </div>
         </div>
+      </div>
+
+      {/* Export buttons */}
+      <div className="mt-8 pt-6 border-t border-white/10">
+        <div className="text-xs text-white/40 mb-3 uppercase tracking-wider">Export Options</div>
+        <ExportButtons results={data} sourceUrl={sourceUrl} mode="study" />
       </div>
     </div>
   )
