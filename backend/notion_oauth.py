@@ -22,9 +22,6 @@ load_dotenv()
 
 logger = logging.getLogger("notionclips.notion_oauth")
 
-NOTION_CLIENT_ID     = os.getenv("NOTION_CLIENT_ID")
-NOTION_CLIENT_SECRET = os.getenv("NOTION_CLIENT_SECRET")
-NOTION_REDIRECT_URI  = os.getenv("NOTION_REDIRECT_URI")
 NOTION_OAUTH_URL     = "https://api.notion.com/v1/oauth/authorize"
 NOTION_TOKEN_URL     = "https://api.notion.com/v1/oauth/token"
 
@@ -46,16 +43,25 @@ def _frontend_redirect(frontend_url: Optional[str], connected: bool, error: Opti
     return RedirectResponse(url=f"{base}/app?{urlencode(query)}")
 
 
-def _require_oauth_env() -> None:
+def _oauth_config() -> tuple[str, str, str]:
+    client_id = os.getenv("NOTION_CLIENT_ID")
+    client_secret = os.getenv("NOTION_CLIENT_SECRET")
+    redirect_uri = os.getenv("NOTION_REDIRECT_URI")
     missing = [
-        var for var in ["NOTION_CLIENT_ID", "NOTION_CLIENT_SECRET", "NOTION_REDIRECT_URI"]
-        if not os.getenv(var)
+        name
+        for name, value in (
+            ("NOTION_CLIENT_ID", client_id),
+            ("NOTION_CLIENT_SECRET", client_secret),
+            ("NOTION_REDIRECT_URI", redirect_uri),
+        )
+        if not value
     ]
     if missing:
         raise HTTPException(
             status_code=500,
             detail=f"Missing Notion OAuth environment variables: {', '.join(missing)}",
         )
+    return str(client_id), str(client_secret), str(redirect_uri)
 
 
 def _encode_state(
@@ -280,7 +286,7 @@ def _create_child_page(token: str, parent_id: str, title: str, emoji: str) -> st
 def start_auth(
     params: Dict[str, Optional[str]] = Depends(_auth_params),
 ) -> RedirectResponse:
-    _require_oauth_env()
+    client_id, _, redirect_uri = _oauth_config()
     state = _encode_state(
         params["session_id"],
         params["notion_page_id"],
@@ -289,10 +295,10 @@ def start_auth(
     )
     auth_query = urlencode(
         {
-            "client_id": NOTION_CLIENT_ID,
+            "client_id": client_id,
             "response_type": "code",
             "owner": "user",
-            "redirect_uri": NOTION_REDIRECT_URI,
+            "redirect_uri": redirect_uri,
             "state": state,
         }
     )
@@ -305,14 +311,14 @@ def oauth_callback(
     code:  str = Query(...),
     state: str = Query(...),
 ) -> RedirectResponse:
-    _require_oauth_env()
+    client_id, client_secret, redirect_uri = _oauth_config()
     state_payload = _decode_state(state)
     session_id    = state_payload["session_id"]
     frontend_url = state_payload.get("frontend_url")
 
     # Exchange code for token
     auth_header = base64.b64encode(
-        f"{NOTION_CLIENT_ID}:{NOTION_CLIENT_SECRET}".encode()
+        f"{client_id}:{client_secret}".encode()
     ).decode()
 
     response = requests.post(
@@ -320,7 +326,7 @@ def oauth_callback(
         json={
             "grant_type": "authorization_code",
             "code": code,
-            "redirect_uri": NOTION_REDIRECT_URI,
+            "redirect_uri": redirect_uri,
         },
         headers={"Content-Type": "application/json", "Authorization": f"Basic {auth_header}"},
         timeout=15,

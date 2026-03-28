@@ -111,10 +111,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const raw = window.localStorage.getItem(APP_STATE_KEY)
       if (!raw) return
       const saved = JSON.parse(raw) as PersistedAppState
-      if (typeof saved.url === "string") setUrl(saved.url)
-      if (saved.sourceType) setSourceType(saved.sourceType)
-      if (typeof saved.articleUrl === "string") setArticleUrl(saved.articleUrl)
-      if (typeof saved.videoId === "string" || saved.videoId === null) setVideoId(saved.videoId)
+      if (allowPersistedResults) {
+        if (typeof saved.url === "string") setUrl(saved.url)
+        if (saved.sourceType) setSourceType(saved.sourceType)
+        if (typeof saved.articleUrl === "string") setArticleUrl(saved.articleUrl)
+        if (typeof saved.videoId === "string" || saved.videoId === null) setVideoId(saved.videoId)
+      }
       if (saved.mode) setMode(saved.mode)
       if (allowPersistedResults) {
         if (saved.results !== undefined) setResults(saved.results)
@@ -137,10 +139,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (typeof window === "undefined") return
     const allowPersistedResults = shouldPersistResults()
     const payload: PersistedAppState = {
-      url,
-      sourceType,
-      articleUrl,
-      videoId,
+      url: allowPersistedResults ? url : "",
+      sourceType: allowPersistedResults ? sourceType : "youtube",
+      articleUrl: allowPersistedResults ? articleUrl : "",
+      videoId: allowPersistedResults ? videoId : null,
       mode,
       results: allowPersistedResults ? results : null,
       transcript: allowPersistedResults ? transcript : null,
