@@ -4,6 +4,7 @@ import { Check, X } from "lucide-react"
 import { useAppStore } from "@/lib/store"
 import { Button } from "@/components/ui/Button"
 import Link from "next/link"
+import { backendUrl } from "@/lib/backendUrl"
 
 export function Navbar() {
   const { isConnected, sessionId, userId, disconnectNotion, isAuthenticated, signInWithGoogle, signOutGoogle, userEmail, getCurrentUserId } = useAppStore()
@@ -13,7 +14,7 @@ export function Navbar() {
     const resolvedUserId = userId || await getCurrentUserId()
     const userQuery = resolvedUserId ? `&user_id=${encodeURIComponent(resolvedUserId)}` : ""
     const frontendUrl = encodeURIComponent(window.location.origin)
-    window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/auth/notion?session_id=${sessionId}${userQuery}&frontend_url=${frontendUrl}`
+    window.location.href = `${backendUrl('/auth/notion')}?session_id=${sessionId}${userQuery}&frontend_url=${frontendUrl}`
   }
 
   return (

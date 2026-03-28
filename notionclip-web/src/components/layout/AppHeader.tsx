@@ -2,6 +2,7 @@
 import Link from 'next/link'
 import { Button } from '@/components/ui/Button'
 import { useAppStore } from '@/lib/store'
+import { backendUrl } from '@/lib/backendUrl'
 
 export function AppHeader() {
   const { isConnected, sessionId, userId, disconnectNotion, getCurrentUserId } = useAppStore()
@@ -11,7 +12,7 @@ export function AppHeader() {
     const resolvedUserId = userId || await getCurrentUserId()
     const userQuery = resolvedUserId ? `&user_id=${encodeURIComponent(resolvedUserId)}` : ""
     const frontendUrl = encodeURIComponent(window.location.origin)
-    window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/auth/notion?session_id=${sessionId}${userQuery}&frontend_url=${frontendUrl}`
+    window.location.href = `${backendUrl('/auth/notion')}?session_id=${sessionId}${userQuery}&frontend_url=${frontendUrl}`
   }
 
   return (
