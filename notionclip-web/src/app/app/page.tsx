@@ -63,7 +63,7 @@ function LoadingPanel({ stage }: { stage: keyof typeof loadingMessagesByStage })
 }
 
 export default function AppPage() {
-  const { results, mode, url, sessionId, isConnected, setNotionPageId, sourceType } = useAppStore()
+  const { results, mode, url, sessionId, isConnected, setNotionPageId, sourceType, userId, getCurrentUserId } = useAppStore()
   const [viewMode, setViewMode] = useState<'extract' | 'synthesis'>('extract')
   const [pushing, setPushing] = useState(false)
   const [pushError, setPushError] = useState("")
@@ -119,10 +119,12 @@ export default function AppPage() {
     }
   }
 
-  const handleConnectNotion = () => {
+  const handleConnectNotion = async () => {
     if (!sessionId) return
+    const resolvedUserId = userId || await getCurrentUserId()
+    const userQuery = resolvedUserId ? `&user_id=${encodeURIComponent(resolvedUserId)}` : ""
     const frontendUrl = encodeURIComponent(window.location.origin)
-    window.location.href = `${backendUrl('/auth/notion')}?session_id=${sessionId}&frontend_url=${frontendUrl}`
+    window.location.href = `${backendUrl('/auth/notion')}?session_id=${sessionId}${userQuery}&frontend_url=${frontendUrl}`
   }
 
   const saveLabelByMode = {

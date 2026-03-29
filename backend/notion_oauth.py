@@ -47,10 +47,32 @@ def _oauth_config(request: Optional[Request] = None) -> tuple[str, str, str]:
     client_id = os.getenv("NOTION_CLIENT_ID")
     client_secret = os.getenv("NOTION_CLIENT_SECRET")
     redirect_uri = os.getenv("NOTION_REDIRECT_URI")
+
+    # Prefer explicit backend base URL when redirect is not configured.
+    if not redirect_uri:
+        backend_base = (
+            os.getenv("PUBLIC_BACKEND_URL")
+            or os.getenv("BACKEND_BASE_URL")
+            or os.getenv("API_BASE_URL")
+            or os.getenv("NEXT_PUBLIC_API_URL")
+        )
+        if backend_base:
+            redirect_uri = f"{backend_base.rstrip('/')}/auth/notion/callback"
+
+    # As a last resort, derive from the incoming request with forwarded headers.
     if not redirect_uri and request is not None:
-        base_url = str(request.base_url).rstrip("/")
-        redirect_uri = f"{base_url}/auth/notion/callback"
-        logger.warning("NOTION_REDIRECT_URI missing; using request base %s", redirect_uri)
+        proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+        host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+        if host:
+            redirect_uri = f"{proto}://{host}/auth/notion/callback"
+            logger.warning("NOTION_REDIRECT_URI missing; using forwarded host %s", redirect_uri)
+        else:
+            base_url = str(request.base_url).rstrip("/")
+            redirect_uri = f"{base_url}/auth/notion/callback"
+            logger.warning("NOTION_REDIRECT_URI missing; using request base %s", redirect_uri)
+
+    if redirect_uri:
+        redirect_uri = redirect_uri.strip()
     missing = [
         name
         for name, value in (
