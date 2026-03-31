@@ -69,9 +69,9 @@ export function QnASection() {
   }
 
   return (
-    <div className="border-t border-white/5 pt-6 mt-6">
+    <div className="border-t border-border/70 pt-6 mt-6">
       <div
-        className="text-xs text-white/40 mb-3 uppercase tracking-wider"
+        className="text-xs app-text-muted mb-3 uppercase tracking-wider"
         title={chatPlaceholderByMode[mode]}
       >
         {chatLabelByMode[mode]}
@@ -84,13 +84,13 @@ export function QnASection() {
               key={i}
               className={`text-sm ${
                 msg.role === 'user'
-                  ? 'text-white/90 bg-white/5 border border-white/10 rounded-lg px-3 py-2'
-                  : 'text-white/70 pl-3 border-l-2 border-purple-500/30'
+                  ? 'text-foreground bg-card border border-border rounded-lg px-3 py-2'
+                  : 'text-foreground/75 pl-3 border-l-2 border-[#CDBAEF]'
               }`}
             >
               <span>{msg.content}</span>
               {msg.notionEdited && (
-                <span className="ml-2 inline-flex items-center text-green-400 text-xs font-semibold">
+                <span className="ml-2 inline-flex items-center text-[#5A8A63] text-xs font-semibold">
                   ✓ Notion updated
                 </span>
               )}
@@ -113,18 +113,18 @@ export function QnASection() {
           }}
           placeholder={chatPlaceholderByMode[mode]}
           title={chatPlaceholderByMode[mode]}
-          className="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white/90 placeholder:text-white/30 focus:outline-none focus:border-white/20 focus:bg-white/[0.07] transition-colors"
+          className="flex-1 bg-card border border-border rounded-lg px-4 py-2.5 text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-border-hover focus:bg-[#FCFAF7] transition-colors"
         />
         <button
           onClick={() => handleSend(input)}
           disabled={!input.trim()}
           title="Send question"
-          className="px-4 py-2.5 bg-white/10 hover:bg-white/15 disabled:opacity-40 disabled:cursor-not-allowed border border-white/10 rounded-lg transition-all"
+          className="px-4 py-2.5 bg-[#F0EBF8] hover:bg-[#E4D9F5] disabled:opacity-40 disabled:cursor-not-allowed border border-border rounded-lg transition-all"
         >
-          <Send className="w-4 h-4 text-white/70" />
+          <Send className="w-4 h-4 text-[#5A4A72]" />
         </button>
       </div>
-      {error && <p className="mt-3 text-sm text-danger">{error}</p>}
+      {error && <p className="mt-3 text-sm text-[#A0527A]">{error}</p>}
     </div>
   )
 }

@@ -49,9 +49,9 @@ function saveRecent(question: string, current: string[]): string[] {
 
 function verdictStyles(verdict: string) {
   const v = verdict.toLowerCase()
-  if (v === "watch") return "border-green-500/40 bg-gradient-to-br from-green-500/15 to-green-500/5 text-green-300"
-  if (v === "skim") return "border-yellow-500/40 bg-gradient-to-br from-yellow-500/15 to-yellow-500/5 text-yellow-300"
-  return "border-red-500/40 bg-gradient-to-br from-red-500/15 to-red-500/5 text-red-300"
+  if (v === "watch") return "border-green-500/40 bg-gradient-to-br from-green-500/15 to-green-500/5 text-green-800"
+  if (v === "skim") return "border-yellow-500/40 bg-gradient-to-br from-yellow-500/15 to-yellow-500/5 text-yellow-800"
+  return "border-red-500/40 bg-gradient-to-br from-red-500/15 to-red-500/5 text-red-800"
 }
 
 function verdictIcon(verdict: string) {
@@ -238,8 +238,8 @@ export function SmartWatch({ videoUrl, sessionId }: SmartWatchProps) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-        <div className="text-sm text-white/85">Smart Watch mode</div>
+      <div className="flex items-center justify-between rounded-lg border border-[#ddd4f6] bg-white/80 px-3 py-2">
+        <div className="text-sm text-slate-800">Smart Watch mode</div>
         <button
           type="button"
           onClick={() => setEnabled((v) => !v)}
@@ -259,7 +259,7 @@ export function SmartWatch({ videoUrl, sessionId }: SmartWatchProps) {
       </div>
 
       {enabled && videoUrl && (
-        <div className="text-xs text-white/60 px-1">
+        <div className="text-xs text-slate-600 px-1">
           {prefetchState === "fetching" && "Preparing transcript in background..."}
           {prefetchState === "ready" && "Transcript ready. Ask your question and get verdict fast."}
           {prefetchState === "error" && "Transcript prefetch failed. Verdict can still run."}
@@ -273,29 +273,29 @@ export function SmartWatch({ videoUrl, sessionId }: SmartWatchProps) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.2 }}
-            className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-3"
+            className="rounded-xl border border-[#ddd4f6] bg-white/80 p-4 space-y-3"
           >
-            <div className="text-xs font-semibold uppercase text-white/60 tracking-wide">🔍 Smart Watch Pre-Check</div>
+            <div className="text-xs font-semibold uppercase text-slate-600 tracking-wide">🔍 Smart Watch Pre-Check</div>
 
             {state === "QUESTION_INPUT" && (
               <>
-                <div className="text-sm text-white/90 font-medium">What is your focus question?</div>
+                <div className="text-sm text-slate-900 font-medium">What is your focus question?</div>
                 <input
                   value={question}
                   onChange={(e) => setQuestion(e.target.value)}
                   onKeyPress={(e) => e.key === "Enter" && canAnalyze && handleAnalyze()}
                   placeholder="e.g. What is the main concept? How does this work?"
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white/90 placeholder:text-white/35 focus:outline-none focus:border-white/20 transition-colors"
+                  className="w-full bg-white/80 border border-[#ddd4f6] rounded-lg px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#d8d0f4] transition-colors"
                   autoFocus
                 />
                 {recentQuestions.length > 0 && (
                   <div className="space-y-2">
-                    <div className="text-xs text-white/50">Recent questions</div>
+                    <div className="text-xs text-slate-500">Recent questions</div>
                     <div className="flex flex-wrap gap-2">
                       {recentQuestions.map((q) => (
                         <button
                           key={q}
-                          className="text-xs px-2.5 py-1 rounded-md border border-white/15 bg-white/5 hover:bg-white/10 text-white/80 transition-colors"
+                          className="text-xs px-2.5 py-1 rounded-md border border-[#d8d0f4] bg-white/80 hover:bg-[#f6f2ff] text-slate-700 transition-colors"
                           onClick={() => setQuestion(q)}
                         >
                           {q}
@@ -318,17 +318,17 @@ export function SmartWatch({ videoUrl, sessionId }: SmartWatchProps) {
             )}
 
             {state === "CHECKING" && (
-              <div className="space-y-2 text-sm text-white/80">
+              <div className="space-y-2 text-sm text-slate-700">
                 <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-white/80 animate-pulse" />
+                  <span className="h-2 w-2 rounded-full bg-primary/80 animate-pulse" />
                   <span>Reading transcript...</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-white/80 animate-pulse [animation-delay:180ms]" />
+                  <span className="h-2 w-2 rounded-full bg-primary/80 animate-pulse [animation-delay:180ms]" />
                   <span>Matching to your intent...</span>
                 </div>
                 {elapsedMs && elapsedMs > 1000 && (
-                  <div className="text-xs text-white/55">{(elapsedMs / 1000).toFixed(1)}s elapsed</div>
+                  <div className="text-xs text-slate-500">{(elapsedMs / 1000).toFixed(1)}s elapsed</div>
                 )}
               </div>
             )}
@@ -422,3 +422,4 @@ export function SmartWatch({ videoUrl, sessionId }: SmartWatchProps) {
     </div>
   )
 }
+

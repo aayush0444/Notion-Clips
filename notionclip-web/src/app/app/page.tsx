@@ -30,7 +30,7 @@ function LoadingPanel({ stage }: { stage: keyof typeof loadingMessagesByStage })
   const widths = ["100%", "85%", "70%", "90%"]
   return (
     <div className="space-y-5" aria-live="polite">
-      <div className="flex items-center space-x-3 text-sm text-white/70">
+      <div className="flex items-center space-x-3 text-sm app-text-muted">
         <span className="h-2.5 w-2.5 rounded-full bg-primary animate-pulse" />
         <AnimatePresence mode="wait">
           <motion.div
@@ -46,9 +46,9 @@ function LoadingPanel({ stage }: { stage: keyof typeof loadingMessagesByStage })
       </div>
       <div className="space-y-3">
         {widths.map((w, idx) => (
-          <div key={idx} className="relative overflow-hidden rounded-md bg-white/5 h-6" style={{ width: w }}>
+          <div key={idx} className="relative overflow-hidden rounded-md bg-[#F0EBF8]/80 h-6" style={{ width: w }}>
             <motion.div
-              className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent"
+              className="absolute inset-0 bg-gradient-to-r from-transparent via-[#9B7FD4]/20 to-transparent"
               initial={{ x: "-100%" }}
               animate={{ x: "100%" }}
               transition={{ duration: 1.4, repeat: Infinity, ease: "linear" }}
@@ -134,7 +134,7 @@ export default function AppPage() {
   } as const
 
   return (
-    <div className="min-h-screen text-white relative overflow-hidden">
+    <div className="min-h-screen text-foreground relative overflow-hidden">
       <Navbar />
       <div className="fixed top-20 right-6 z-[100] space-y-2">
         <AnimatePresence>
@@ -143,7 +143,7 @@ export default function AppPage() {
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
-              className="px-4 py-2 rounded-lg border border-green-500/30 bg-green-500/15 text-green-300 text-sm"
+              className="px-4 py-2 rounded-lg border border-[#CBE3D0] bg-[#F0F8F2] text-[#5A8A63] text-sm"
             >
               ✓ Saved to Notion — your workspace is up to date
             </motion.div>
@@ -155,7 +155,7 @@ export default function AppPage() {
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
-              className="max-w-md px-4 py-2 rounded-lg border border-red-500/30 bg-red-500/15 text-red-300 text-sm"
+              className="max-w-md px-4 py-2 rounded-lg border border-[#E6C7D6] bg-[#FAEFF5] text-[#A0527A] text-sm"
             >
               ✗ {pushError}
             </motion.div>
@@ -166,7 +166,7 @@ export default function AppPage() {
       <div ref={containerRef} className="pt-16 h-[calc(100vh-0px)] flex relative z-[1]">
         <aside
           style={{ width: leftWidth }}
-          className="border-r border-white/10 bg-white/[0.02] p-8 flex flex-col min-w-[320px] max-w-[520px] h-[calc(100vh-64px)] overflow-y-auto overflow-x-hidden"
+          className="border-r border-border bg-white/70 p-8 flex flex-col min-w-[320px] max-w-[520px] h-[calc(100vh-64px)] overflow-y-auto overflow-x-hidden"
         >
           <div className="flex-1 space-y-6">
             <ContentSourceSelector />
@@ -211,7 +211,7 @@ export default function AppPage() {
             event.preventDefault()
             setIsResizing(true)
           }}
-          className="w-2 cursor-col-resize bg-white/5 hover:bg-white/15 transition-colors touch-none"
+          className="w-2 cursor-col-resize bg-[#EDE6DA] hover:bg-[#E4D9F5] transition-colors touch-none"
         />
 
         <section className="flex-1 overflow-y-auto">
@@ -235,7 +235,7 @@ export default function AppPage() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -12 }}
                   transition={{ duration: 0.3 }}
-                  className="h-full min-h-[60vh] flex items-center justify-center surface-premium rounded-2xl p-8"
+                  className="tech-tilt-panel h-full min-h-[60vh] flex items-center justify-center surface-premium rounded-2xl p-8"
                 >
                   <LoadingPanel stage={processingStage} />
                 </motion.div>
@@ -246,11 +246,11 @@ export default function AppPage() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -12 }}
                   transition={{ duration: 0.3 }}
-                  className="h-full min-h-[60vh] flex items-center justify-center surface-premium rounded-2xl p-8"
+                  className="tech-tilt-panel h-full min-h-[60vh] flex items-center justify-center surface-premium rounded-2xl p-8"
                 >
                   <div className="text-center max-w-md text-balance-premium">
-                    <div className="text-white/40 mb-2">Ready when you are</div>
-                    <div className="text-sm text-white/30">
+                    <div className="text-muted mb-2">Ready when you are</div>
+                    <div className="text-sm app-text-muted">
                       Add a YouTube URL, choose your mode, and generate premium notes in one click.
                     </div>
                   </div>
@@ -262,7 +262,7 @@ export default function AppPage() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -12 }}
                   transition={{ duration: 0.3 }}
-                  className="space-y-6 surface-premium rounded-2xl p-6"
+                  className="tech-tilt-panel space-y-6 surface-premium rounded-2xl p-6"
                 >
                   {mode === "study" && <StudyModeView data={results} sourceUrl={url} />}
                   {mode === "work" && <WorkModeView data={results} sourceUrl={url} />}

@@ -27,7 +27,7 @@ export function UrlInput() {
 
   return (
     <div>
-      <label className="block text-xs text-white/40 mb-2 uppercase tracking-wider">
+      <label className="block text-xs text-slate-500 mb-2 uppercase tracking-wider">
         Video URL
       </label>
       <div className="relative group">
@@ -40,7 +40,7 @@ export function UrlInput() {
           onChange={handleChange}
           onPaste={handlePaste}
           placeholder="https://youtube.com/watch?v=..."
-          className="w-full bg-white/5 border border-white/10 rounded-lg pl-11 pr-4 py-3 text-sm text-white/90 placeholder:text-white/30 focus:outline-none focus:border-white/20 focus:bg-white/[0.07] transition-colors"
+          className="w-full bg-white/70 border border-[#dcd4f6] rounded-lg pl-11 pr-4 py-3 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-primary/40 focus:bg-white transition-colors"
         />
         <AnimatePresence>
           {showUrlAnimation && (

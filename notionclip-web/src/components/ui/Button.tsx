@@ -15,10 +15,10 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     
     const variants = {
       default: "bg-primary text-primary-foreground hover:bg-primary/90",
-      outline: "border border-border bg-transparent hover:bg-white/5",
-      ghost: "hover:bg-white/5 hover:text-white text-muted",
+      outline: "border border-border bg-transparent hover:bg-slate-100/80 text-slate-700",
+      ghost: "hover:bg-slate-100/80 hover:text-slate-900 text-muted",
       gradient: "bg-gradient-to-r from-[#60A5FA] to-[#A78BFA] text-white hover:opacity-90 font-semibold border-0",
-      glass: "bg-white/5 border border-white/10 backdrop-blur-md text-white hover:bg-white/10"
+      glass: "bg-white/75 border border-[#ddd4f6] backdrop-blur-md text-slate-800 hover:bg-white"
     }
     
     const sizes = {

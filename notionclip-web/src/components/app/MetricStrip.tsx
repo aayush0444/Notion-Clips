@@ -25,11 +25,11 @@ export function MetricStrip() {
   ]
 
   return (
-    <div className="grid grid-cols-2 gap-3 pt-4 border-t border-white/5">
+    <div className="grid grid-cols-2 gap-3 pt-4 border-t border-border/70">
       {stats.map((item) => (
-        <div key={item.label} className="bg-white/5 rounded-lg p-3 border border-white/10">
-          <div className="text-xs text-white/40 mb-1">{item.label}</div>
-          <div className="text-sm text-white/90">{item.value}</div>
+        <div key={item.label} className="bg-card rounded-lg p-3 border border-border shadow-[0_4px_16px_rgba(61,36,102,0.08)]">
+          <div className="text-xs app-text-muted mb-1">{item.label}</div>
+          <div className="text-sm text-foreground">{item.value}</div>
         </div>
       ))}
     </div>

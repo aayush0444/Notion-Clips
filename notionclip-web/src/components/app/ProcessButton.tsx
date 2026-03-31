@@ -148,14 +148,14 @@ export function ProcessButton({ onProcessingChange, onStageChange }: ProcessButt
     <div className="w-full">
       <Button 
         variant="default" 
-        className="w-full bg-white text-black py-3.5 rounded-lg hover:bg-white/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-sm font-medium h-auto"
+        className="w-full bg-primary text-primary-foreground py-3.5 rounded-lg hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-sm font-medium h-auto"
         disabled={!canProcess || loading}
         onClick={handleProcess}
         title={modeHint[mode]}
       >
         {loading ? "Building your output..." : sourceType === 'youtube' ? 'Process Video' : modeCta[mode]}
       </Button>
-      <p className="mt-2 text-xs text-white/45" title={modeHint[mode]}>
+      <p className="mt-2 text-xs text-slate-500" title={modeHint[mode]}>
         {modeHint[mode]} · {sourceHint[sourceType]}
       </p>
       {error && (

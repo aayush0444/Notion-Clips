@@ -17,10 +17,10 @@ type VerdictFilter = "all" | "watch" | "skim" | "skip"
 type ModeFilter = "all" | "study" | "work" | "quick"
 type DateFilter = "all" | "today" | "week" | "month"
 
-const selectStyle = { colorScheme: "dark" } as const
+const selectStyle = { colorScheme: "light" } as const
 const selectClassName =
-  "bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white/85 focus:outline-none focus:border-white/25 focus:bg-white/10 transition-colors"
-const optionClassName = "bg-[#0f1014] text-white"
+  "bg-white/80 border border-[#ddd4f6] rounded-lg px-2.5 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-primary/35 focus:bg-white transition-colors"
+const optionClassName = "bg-white text-slate-800"
 
 function inferMode(item: SmartWatchHistoryItem): "study" | "work" | "quick" {
   const verdict = String(item.verdict || "").toLowerCase()
@@ -119,19 +119,19 @@ export default function LibraryPage() {
   const hasMore = visibleCount < filteredSorted.length
 
   return (
-    <div className="min-h-screen text-white relative overflow-hidden">
+    <div className="min-h-screen text-slate-900 relative overflow-hidden">
       <Navbar />
       <main className="pt-20 max-w-6xl mx-auto px-8 pb-12 space-y-6 relative z-[1]">
         <div className="surface-premium rounded-2xl p-6">
-          <div className="text-xs uppercase tracking-[0.14em] text-white/45 mb-2">Library</div>
+          <div className="text-xs uppercase tracking-[0.14em] text-slate-500 mb-2">Library</div>
           <h1 className="text-2xl font-semibold tracking-tight">Your Learning & Decision Archive</h1>
-          <p className="text-sm text-white/60 mt-2">
+          <p className="text-sm text-slate-600 mt-2">
             Review what you asked, what the system recommended, and where answers were found.
           </p>
           <div className="mt-4 flex items-center gap-2">
             <Link
               href="/app"
-              className="px-3 py-1.5 rounded-lg text-xs bg-white/5 hover:bg-white/10 text-white/80 border border-white/10"
+              className="px-3 py-1.5 rounded-lg text-xs bg-white/80 hover:bg-[#f6f2ff] text-slate-700 border border-[#ddd4f6]"
             >
               Back to App
             </Link>
@@ -141,47 +141,47 @@ export default function LibraryPage() {
         {metrics && (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
             <div className="surface-premium rounded-xl p-4">
-              <div className="text-xs text-white/45 uppercase tracking-[0.12em]">Total analyses</div>
+              <div className="text-xs text-slate-500 uppercase tracking-[0.12em]">Total analyses</div>
               <div className="text-2xl mt-1">{metrics.total_analyses}</div>
             </div>
             <div className="surface-premium rounded-xl p-4">
-              <div className="text-xs text-white/45 uppercase tracking-[0.12em]">Verdicts</div>
-              <div className="text-sm mt-2 text-white/80">
+              <div className="text-xs text-slate-500 uppercase tracking-[0.12em]">Verdicts</div>
+              <div className="text-sm mt-2 text-slate-700">
                 Watch {metrics.watch_count} · Skim {metrics.skim_count} · Skip {metrics.skip_count}
               </div>
             </div>
             <div className="surface-premium rounded-xl p-4">
-              <div className="text-xs text-white/45 uppercase tracking-[0.12em]">Avg confidence</div>
+              <div className="text-xs text-slate-500 uppercase tracking-[0.12em]">Avg confidence</div>
               <div className="text-2xl mt-1">{Math.round((metrics.avg_confidence || 0) * 100)}%</div>
             </div>
             <div className="surface-premium rounded-xl p-4">
-              <div className="text-xs text-white/45 uppercase tracking-[0.12em]">Timestamp utility</div>
-              <div className="text-sm mt-2 text-white/80">
+              <div className="text-xs text-slate-500 uppercase tracking-[0.12em]">Timestamp utility</div>
+              <div className="text-sm mt-2 text-slate-700">
                 {metrics.timestamp_clicks} clicks / {metrics.timestamps_generated} generated
               </div>
             </div>
             <div className="surface-premium rounded-xl p-4 md:col-span-2">
-              <div className="text-xs text-white/45 uppercase tracking-[0.12em]">Speed profile</div>
-              <div className="text-sm mt-2 text-white/80">
+              <div className="text-xs text-slate-500 uppercase tracking-[0.12em]">Speed profile</div>
+              <div className="text-sm mt-2 text-slate-700">
                 Quick-check {formatMs(metrics.avg_stage1_ms)} · Deep-analysis {formatMs(metrics.avg_stage2_ms)}
               </div>
             </div>
             <div className="surface-premium rounded-xl p-4 md:col-span-2">
-              <div className="text-xs text-white/45 uppercase tracking-[0.12em]">Estimated time saved</div>
+              <div className="text-xs text-slate-500 uppercase tracking-[0.12em]">Estimated time saved</div>
               <div className="text-2xl mt-1">{(metrics.estimated_time_saved_minutes || 0).toFixed(1)} min</div>
-              <div className="text-xs text-white/55 mt-1">Based on skip + skim decisions and cached video durations</div>
+              <div className="text-xs text-slate-500 mt-1">Based on skip + skim decisions and cached video durations</div>
             </div>
           </div>
         )}
 
         <div className="surface-premium rounded-2xl p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="text-sm text-white/85">Analyses</div>
+            <div className="text-sm text-slate-800">Analyses</div>
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search question, reason, title..."
-              className="w-full md:w-auto md:min-w-[280px] bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white/85 placeholder:text-white/35 focus:outline-none focus:border-white/20"
+              className="w-full md:w-auto md:min-w-[280px] bg-white/80 border border-[#ddd4f6] rounded-lg px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#d8d0f4]"
             />
           </div>
 
@@ -231,9 +231,9 @@ export default function LibraryPage() {
             </select>
           </div>
 
-          {loading && <div className="text-sm text-white/50">Loading library...</div>}
+          {loading && <div className="text-sm text-slate-500">Loading library...</div>}
           {error && <div className="text-sm text-red-300">{error}</div>}
-          {!loading && !filteredSorted.length && <div className="text-sm text-white/45">No matching items yet.</div>}
+          {!loading && !filteredSorted.length && <div className="text-sm text-slate-500">No matching items yet.</div>}
 
           <div className="space-y-2 max-h-[540px] overflow-y-auto pr-1">
             {visibleItems.map((item, i) => (
@@ -241,11 +241,11 @@ export default function LibraryPage() {
                 type="button"
                 key={`${item.id || i}`}
                 onClick={() => setSelected(item)}
-                className="w-full text-left rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-2 hover:bg-white/[0.06] transition-colors"
+                className="w-full text-left rounded-xl border border-[#ddd4f6] bg-white/82 p-4 space-y-2 hover:bg-[#f4f0ff] transition-colors"
               >
-                <div className="text-sm text-white/90">{item.user_question}</div>
-                <div className="flex items-center gap-2 text-xs text-white/60">
-                  <span className="px-2 py-0.5 rounded-full border border-white/20 bg-white/5">
+                <div className="text-sm text-slate-900">{item.user_question}</div>
+                <div className="flex items-center gap-2 text-xs text-slate-600">
+                  <span className="px-2 py-0.5 rounded-full border border-[#d8d0f4] bg-white/80">
                     {(item.verdict || "unknown").toString().toUpperCase()}
                   </span>
                   {typeof item.confidence === "number" && (
@@ -253,7 +253,7 @@ export default function LibraryPage() {
                   )}
                   {item.created_at && <span>· {new Date(item.created_at).toLocaleString()}</span>}
                 </div>
-                {item.reason && <div className="text-sm text-white/70">{item.reason}</div>}
+                {item.reason && <div className="text-sm text-slate-700">{item.reason}</div>}
                 {item.relevant_moments && item.relevant_moments.length > 0 && (
                   <div className="flex flex-wrap gap-2 pt-1">
                     {item.relevant_moments.slice(0, 5).map((m, idx) => (
@@ -273,7 +273,7 @@ export default function LibraryPage() {
                             )
                           }
                         }}
-                        className="text-xs px-2.5 py-1 rounded-full border border-white/20 bg-white/5 hover:bg-white/10 text-white/80"
+                        className="text-xs px-2.5 py-1 rounded-full border border-[#d8d0f4] bg-white/80 hover:bg-[#f6f2ff] text-slate-700"
                         title={`${m.quote} — ${m.relevance}`}
                       >
                         ▶ {m.timestamp_display}
@@ -289,7 +289,7 @@ export default function LibraryPage() {
             <button
               type="button"
               onClick={() => setVisibleCount((c) => c + 12)}
-              className="w-full rounded-lg border border-white/15 bg-white/5 py-2 text-sm text-white/85 hover:bg-white/10 transition-colors"
+              className="w-full rounded-lg border border-[#d8d0f4] bg-white/80 py-2 text-sm text-slate-800 hover:bg-[#f6f2ff] transition-colors"
             >
               Load 12 more
             </button>
@@ -299,26 +299,26 @@ export default function LibraryPage() {
 
       {selected && (
         <div className="fixed inset-0 z-50 bg-black/55 backdrop-blur-sm p-4 md:p-8">
-          <div className="max-w-3xl mx-auto mt-8 surface-premium rounded-2xl border border-white/10 p-5 space-y-4">
+          <div className="max-w-3xl mx-auto mt-8 surface-premium rounded-2xl border border-[#ddd4f6] p-5 space-y-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-xs uppercase tracking-[0.12em] text-white/45">Run details</div>
-                <h3 className="text-lg text-white/95 mt-1">{selected.user_question}</h3>
+                <div className="text-xs uppercase tracking-[0.12em] text-slate-500">Run details</div>
+                <h3 className="text-lg text-slate-900 mt-1">{selected.user_question}</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setSelected(null)}
-                className="rounded-lg border border-white/20 bg-white/5 px-2.5 py-1 text-xs text-white/80 hover:bg-white/10"
+                className="rounded-lg border border-[#d8d0f4] bg-white/80 px-2.5 py-1 text-xs text-slate-700 hover:bg-[#f6f2ff]"
               >
                 Close
               </button>
             </div>
 
-            <div className="flex flex-wrap gap-2 text-xs text-white/70">
-              <span className="px-2 py-0.5 rounded-full border border-white/20 bg-white/5">
+            <div className="flex flex-wrap gap-2 text-xs text-slate-700">
+              <span className="px-2 py-0.5 rounded-full border border-[#d8d0f4] bg-white/80">
                 {(selected.verdict || "unknown").toString().toUpperCase()}
               </span>
-              <span className="px-2 py-0.5 rounded-full border border-white/20 bg-white/5">
+              <span className="px-2 py-0.5 rounded-full border border-[#d8d0f4] bg-white/80">
                 Mode {inferMode(selected).toUpperCase()}
               </span>
               {typeof selected.confidence === "number" && (
@@ -327,25 +327,25 @@ export default function LibraryPage() {
               {selected.created_at && <span>· {new Date(selected.created_at).toLocaleString()}</span>}
             </div>
 
-            {selected.reason && <p className="text-sm text-white/75">{selected.reason}</p>}
+            {selected.reason && <p className="text-sm text-slate-700">{selected.reason}</p>}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-white/65">
-              <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-                Video ID: <span className="text-white/85">{selected.video_id}</span>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-slate-600">
+              <div className="rounded-lg border border-[#ddd4f6] bg-white/82 p-3">
+                Video ID: <span className="text-slate-800">{selected.video_id}</span>
               </div>
-              <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-                Est. range: <span className="text-white/85">{selected.estimated_timestamp_range || "—"}</span>
+              <div className="rounded-lg border border-[#ddd4f6] bg-white/82 p-3">
+                Est. range: <span className="text-slate-800">{selected.estimated_timestamp_range || "—"}</span>
               </div>
-              <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-                Stage 1: <span className="text-white/85">{formatMs(selected.stage1_ms || 0)}</span>
+              <div className="rounded-lg border border-[#ddd4f6] bg-white/82 p-3">
+                Stage 1: <span className="text-slate-800">{formatMs(selected.stage1_ms || 0)}</span>
               </div>
-              <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-                Stage 2: <span className="text-white/85">{formatMs(selected.stage2_ms || 0)}</span>
+              <div className="rounded-lg border border-[#ddd4f6] bg-white/82 p-3">
+                Stage 2: <span className="text-slate-800">{formatMs(selected.stage2_ms || 0)}</span>
               </div>
             </div>
 
             <div className="space-y-2">
-              <div className="text-sm text-white/85">Relevant moments</div>
+              <div className="text-sm text-slate-800">Relevant moments</div>
               {selected.relevant_moments && selected.relevant_moments.length > 0 ? (
                 <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
                   {selected.relevant_moments.map((m, idx) => (
@@ -364,16 +364,16 @@ export default function LibraryPage() {
                           )
                         }
                       }}
-                      className="block rounded-lg border border-white/10 bg-white/[0.03] p-3 hover:bg-white/[0.06] transition-colors"
+                      className="block rounded-lg border border-[#ddd4f6] bg-white/82 p-3 hover:bg-[#f4f0ff] transition-colors"
                     >
-                      <div className="text-xs text-white/80 mb-1">▶ {m.timestamp_display}</div>
-                      <div className="text-sm text-white/90">{m.quote || "Moment reference"}</div>
-                      <div className="text-xs text-white/65 mt-1">{m.relevance}</div>
+                      <div className="text-xs text-slate-700 mb-1">▶ {m.timestamp_display}</div>
+                      <div className="text-sm text-slate-900">{m.quote || "Moment reference"}</div>
+                      <div className="text-xs text-slate-600 mt-1">{m.relevance}</div>
                     </a>
                   ))}
                 </div>
               ) : (
-                <div className="text-sm text-white/50">No extracted moments for this run.</div>
+                <div className="text-sm text-slate-500">No extracted moments for this run.</div>
               )}
             </div>
           </div>
@@ -382,4 +382,5 @@ export default function LibraryPage() {
     </div>
   )
 }
+
 

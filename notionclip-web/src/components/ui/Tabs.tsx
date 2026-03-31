@@ -13,7 +13,7 @@ export function Tabs({ tabs, activeTab, onChange, className }: { tabs: string[],
           onClick={() => onChange(tab)}
           className={cn(
             "relative px-4 py-2 text-sm font-medium transition-colors outline-none",
-            activeTab === tab ? "text-white" : "text-muted hover:text-white/80"
+            activeTab === tab ? "text-slate-900" : "text-muted hover:text-slate-700"
           )}
         >
           {tab}
