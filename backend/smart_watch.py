@@ -662,6 +662,28 @@ async def smart_watch_quick_check(payload: SmartWatchQuickRequest):
             relevant_moments=[],
             stage1_ms=stage1_ms,
         )
+        
+        # Also save to unified library
+        try:
+            save_library_item(
+                session_id=payload.session_id,
+                user_id=user_id,
+                content_type="smart_watch",
+                title=video_title or video_id or "YouTube Video",
+                source_url=video_url,
+                video_id=video_id,
+                summary=question,
+                content_data={
+                    "verdict": out["verdict"],
+                    "confidence": out["confidence"],
+                    "reason": out["reason"],
+                    "estimated_timestamp_range": out["estimated_timestamp_range"],
+                    "user_question": question,
+                    "stage1_ms": stage1_ms,
+                },
+            )
+        except Exception as lib_exc:
+            logger.warning(f"Failed to save Smart Watch to library: {lib_exc}")
     except Exception as exc:
         logger.warning("Failed saving Smart Watch quick analysis: %s", exc)
     try:

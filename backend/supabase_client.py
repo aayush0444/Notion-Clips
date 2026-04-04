@@ -18,6 +18,7 @@ TRANSCRIPTS_TABLE = os.getenv("SUPABASE_TRANSCRIPTS_TABLE", "transcript_cache")
 INSIGHTS_TABLE = os.getenv("SUPABASE_INSIGHTS_TABLE", "insight_cache")
 SMART_WATCH_TABLE = os.getenv("SUPABASE_SMART_WATCH_TABLE", "smart_watch_analyses")
 STUDY_SESSIONS_TABLE = os.getenv("SUPABASE_STUDY_SESSIONS_TABLE", "study_sessions")
+LIBRARY_TABLE = os.getenv("SUPABASE_LIBRARY_TABLE", "user_library")
 
 _client: Optional[Client] = None
 
@@ -371,3 +372,232 @@ def append_qa_history(
     client.table(STUDY_SESSIONS_TABLE).update(
         {"qa_history": history, "updated_at": datetime.now(timezone.utc).isoformat()}
     ).eq("id", study_session_id).execute()
+
+
+# ============================================================================
+# UNIFIED LIBRARY FUNCTIONS
+# ============================================================================
+
+def save_library_item(
+    session_id: str,
+    content_type: str,
+    title: str,
+    user_id: Optional[str] = None,
+    source_url: Optional[str] = None,
+    video_id: Optional[str] = None,
+    summary: Optional[str] = None,
+    content_data: Optional[Dict[str, Any]] = None,
+    notion_page_id: Optional[str] = None,
+    tags: Optional[list[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Save an item to the user's unified library.
+    
+    Args:
+        session_id: Session identifier
+        content_type: Type of content (youtube_study, youtube_work, youtube_quick, smart_watch, study_session)
+        title: Item title
+        user_id: Optional user ID (if authenticated)
+        source_url: Optional source URL (YouTube, etc.)
+        video_id: Optional video ID
+        summary: Optional one-line summary
+        content_data: Optional structured content (jsonb)
+        notion_page_id: Optional Notion page ID
+        tags: Optional list of tags
+    
+    Returns:
+        The created library item
+    """
+    client = _get_client()
+    
+    item_data = {
+        "session_id": session_id,
+        "content_type": content_type,
+        "title": title,
+        "summary": summary or "",
+        "content_data": content_data or {},
+        "tags": tags or [],
+    }
+    
+    if user_id:
+        item_data["user_id"] = user_id
+    if source_url:
+        item_data["source_url"] = source_url
+    if video_id:
+        item_data["video_id"] = video_id
+    if notion_page_id:
+        item_data["notion_page_id"] = notion_page_id
+    
+    response = client.table(LIBRARY_TABLE).insert(item_data).execute()
+    
+    if not response.data:
+        raise RuntimeError("Failed to save library item")
+    
+    return response.data[0]
+
+
+def list_library_items(
+    session_id: str,
+    user_id: Optional[str] = None,
+    content_type: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> Dict[str, Any]:
+    """
+    List library items for a user/session with optional filtering.
+    
+    Args:
+        session_id: Session identifier
+        user_id: Optional user ID (if authenticated)
+        content_type: Optional filter by content type
+        limit: Maximum items to return (default 50, max 100)
+        offset: Offset for pagination
+    
+    Returns:
+        Dict with 'items', 'total', and 'has_more' keys
+    """
+    client = _get_client()
+    safe_limit = max(1, min(int(limit), 100))
+    
+    # Build query
+    query = client.table(LIBRARY_TABLE).select("*", count="exact")
+    
+    # Filter by user or session
+    if user_id:
+        query = query.eq("user_id", user_id)
+    else:
+        query = query.eq("session_id", session_id)
+    
+    # Filter by content type if specified
+    if content_type:
+        query = query.eq("content_type", content_type)
+    
+    # Apply ordering and pagination
+    query = query.order("created_at", desc=True).range(offset, offset + safe_limit - 1)
+    
+    response = query.execute()
+    
+    items = response.data or []
+    total = response.count or 0
+    has_more = (offset + safe_limit) < total
+    
+    return {
+        "items": items,
+        "total": total,
+        "has_more": has_more,
+    }
+
+
+def get_library_item(
+    item_id: str,
+    session_id: str,
+    user_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Get a single library item by ID.
+    
+    Args:
+        item_id: Library item UUID
+        session_id: Session identifier
+        user_id: Optional user ID (if authenticated)
+    
+    Returns:
+        The library item or None if not found
+    """
+    client = _get_client()
+    
+    query = client.table(LIBRARY_TABLE).select("*").eq("id", item_id)
+    
+    # Ensure user can only access their own items
+    if user_id:
+        query = query.eq("user_id", user_id)
+    else:
+        query = query.eq("session_id", session_id)
+    
+    response = query.maybe_single().execute()
+    
+    return response.data
+
+
+def delete_library_item(
+    item_id: str,
+    session_id: str,
+    user_id: Optional[str] = None,
+) -> bool:
+    """
+    Delete a library item by ID.
+    
+    Args:
+        item_id: Library item UUID
+        session_id: Session identifier
+        user_id: Optional user ID (if authenticated)
+    
+    Returns:
+        True if deleted, False if not found
+    """
+    client = _get_client()
+    
+    query = client.table(LIBRARY_TABLE).delete().eq("id", item_id)
+    
+    # Ensure user can only delete their own items
+    if user_id:
+        query = query.eq("user_id", user_id)
+    else:
+        query = query.eq("session_id", session_id)
+    
+    response = query.execute()
+    
+    return len(response.data or []) > 0
+
+
+def search_library_items(
+    session_id: str,
+    query: str,
+    user_id: Optional[str] = None,
+    content_type: Optional[str] = None,
+    limit: int = 50,
+) -> Dict[str, Any]:
+    """
+    Search library items by text query.
+    
+    Args:
+        session_id: Session identifier
+        query: Search query string
+        user_id: Optional user ID (if authenticated)
+        content_type: Optional filter by content type
+        limit: Maximum items to return
+    
+    Returns:
+        Dict with 'items' and 'total' keys
+    """
+    client = _get_client()
+    safe_limit = max(1, min(int(limit), 100))
+    
+    # Use PostgreSQL full-text search
+    search_query = client.table(LIBRARY_TABLE).select("*", count="exact")
+    
+    # Filter by user or session
+    if user_id:
+        search_query = search_query.eq("user_id", user_id)
+    else:
+        search_query = search_query.eq("session_id", session_id)
+    
+    # Filter by content type if specified
+    if content_type:
+        search_query = search_query.eq("content_type", content_type)
+    
+    # Full-text search using textSearch
+    search_query = search_query.text_search("title", query, config="english")
+    
+    # Apply ordering and limit
+    search_query = search_query.order("created_at", desc=True).limit(safe_limit)
+    
+    response = search_query.execute()
+    
+    items = response.data or []
+    total = response.count or 0
+    
+    return {
+        "items": items,
+        "total": total,
+    }

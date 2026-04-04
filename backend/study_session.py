@@ -126,6 +126,7 @@ from backend.supabase_client import (
     get_session,
     get_study_session,
     update_study_session,
+    save_library_item,
 )
 from gemini import (
     ANSWER_EVALUATION_PROMPT,
@@ -488,6 +489,39 @@ async def build_session(study_session_id: str, payload: StudySessionBuildRequest
         study_session_id,
         {"knowledge_map": knowledge_map, "tutor_output": tutor_output, "status": "ready"},
     )
+    
+    # Save to unified library
+    try:
+        learning_goal = session.get("learning_goal", "Unknown learning goal")
+        foundation = tutor_output.get("foundation", "")
+        user_id = session.get("user_id")
+        session_id_val = session.get("session_id", "")
+        
+        # Get notion_page_id if exists
+        notion_page_id = session.get("notion_page_id")
+        
+        save_library_item(
+            session_id=session_id_val,
+            user_id=user_id,
+            content_type="study_session",
+            title=f"Learning: {learning_goal}",
+            summary=foundation,
+            content_data={
+                "learning_goal": learning_goal,
+                "student_level": session.get("student_level"),
+                "concepts": knowledge_map.get("concepts", []),
+                "knowledge_map": knowledge_map,
+                "tutor_output": tutor_output,
+                "sources": [
+                    {"source_index": s.get("source_index"), "title": s.get("title"), "type": s.get("type")}
+                    for s in sources
+                ],
+            },
+            notion_page_id=notion_page_id,
+        )
+        logger.info(f"Saved study session to library: {learning_goal}")
+    except Exception as exc:
+        logger.warning(f"Failed to save study session to library: {exc}")
 
     return {
         "study_session_id": study_session_id,

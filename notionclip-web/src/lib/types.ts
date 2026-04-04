@@ -253,3 +253,113 @@ export interface SynthesisResponse {
   sources_count: number
   synthesis_cache_used: boolean
 }
+
+// ============================================================================
+// UNIFIED LIBRARY TYPES
+// ============================================================================
+
+export type LibraryContentType = 
+  | 'youtube_study' 
+  | 'youtube_work' 
+  | 'youtube_quick' 
+  | 'smart_watch' 
+  | 'study_session'
+
+// Content data structures for each type
+export interface YouTubeStudyContent {
+  core_concept?: string
+  formula_sheet?: string[]
+  key_facts?: string[]
+  common_mistakes?: string[]
+  self_test?: string[]
+  prerequisites?: string[]
+  further_reading?: string[]
+  moments?: any[]
+}
+
+export interface YouTubeWorkContent {
+  one_liner?: string
+  recommendation?: string
+  key_points?: string[]
+  tools_mentioned?: string[]
+  decisions_to_make?: string[]
+  next_actions?: string[]
+  moments?: any[]
+}
+
+export interface YouTubeQuickContent {
+  summary?: string
+  key_takeaways?: string[]
+  topics_covered?: string[]
+  action_items?: string[]
+  moments?: any[]
+}
+
+export interface SmartWatchContent {
+  verdict: 'watch' | 'skim' | 'skip'
+  confidence: number
+  reason: string
+  estimated_timestamp_range?: string
+  user_question: string
+  relevant_moments?: SmartWatchMoment[]
+  stage1_ms?: number
+  stage2_ms?: number
+}
+
+export interface StudySessionContent {
+  learning_goal: string
+  student_level: string
+  concepts?: any[]
+  knowledge_map?: any
+  tutor_output?: any
+  sources?: Array<{ source_index: number; title: string; type: string }>
+}
+
+export type LibraryContentData =
+  | YouTubeStudyContent
+  | YouTubeWorkContent
+  | YouTubeQuickContent
+  | SmartWatchContent
+  | StudySessionContent
+
+export interface UnifiedLibraryItem {
+  id: string
+  user_id?: string | null
+  session_id: string
+  content_type: LibraryContentType
+  title: string
+  source_url?: string | null
+  video_id?: string | null
+  summary?: string | null
+  content_data: LibraryContentData
+  notion_page_id?: string | null
+  tags: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface LibraryFilters {
+  content_type?: LibraryContentType | 'all'
+  search_query?: string
+  date_range?: 'today' | 'week' | 'month' | 'all'
+}
+
+export interface ListLibraryResponse {
+  items: UnifiedLibraryItem[]
+  total: number
+  has_more: boolean
+}
+
+export interface AddLibraryItemRequest {
+  session_id: string
+  user_id?: string | null
+  content_type: LibraryContentType
+  title: string
+  source_url?: string | null
+  video_id?: string | null
+  summary?: string | null
+  content_data: LibraryContentData
+  notion_page_id?: string | null
+  tags?: string[]
+}
+

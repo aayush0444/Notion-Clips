@@ -11,7 +11,10 @@ import {
   StudySession,
   AnswerEvaluationResponse,
   ExportMarkdownResponse,
-  SynthesisResponse
+  SynthesisResponse,
+  UnifiedLibraryItem,
+  ListLibraryResponse,
+  LibraryContentType,
 } from './types'
 import { API_BASE, backendUrl } from './backendUrl'
 
@@ -519,3 +522,103 @@ export const api = {
 
   }
 }
+
+// ============================================================================
+// UNIFIED LIBRARY API FUNCTIONS
+// ============================================================================
+
+export async function getLibrary(
+  sessionId: string,
+  userId?: string | null,
+  contentType?: LibraryContentType | 'all',
+  limit: number = 50,
+  offset: number = 0
+): Promise<ListLibraryResponse> {
+  const res = await fetch(backendUrl('/library/list'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: sessionId,
+      user_id: userId || null,
+      content_type: contentType === 'all' ? null : contentType,
+      limit,
+      offset,
+    }),
+  })
+  if (!res.ok) {
+    const detail = await parseError(res)
+    throw new Error(`Failed to fetch library (${res.status}): ${detail}`)
+  }
+  return res.json()
+}
+
+export async function searchLibrary(
+  sessionId: string,
+  query: string,
+  userId?: string | null,
+  contentType?: LibraryContentType | 'all',
+  limit: number = 50
+): Promise<ListLibraryResponse> {
+  const res = await fetch(backendUrl('/library/search'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: sessionId,
+      user_id: userId || null,
+      query,
+      content_type: contentType === 'all' ? null : contentType,
+      limit,
+    }),
+  })
+  if (!res.ok) {
+    const detail = await parseError(res)
+    throw new Error(`Failed to search library (${res.status}): ${detail}`)
+  }
+  return res.json()
+}
+
+export async function getLibraryItem(
+  itemId: string,
+  sessionId: string,
+  userId?: string | null
+): Promise<UnifiedLibraryItem> {
+  const params = new URLSearchParams({
+    session_id: sessionId,
+  })
+  if (userId) {
+    params.append('user_id', userId)
+  }
+  
+  const res = await fetch(
+    `${backendUrl(`/library/${itemId}`)}?${params}`,
+    { method: 'GET' }
+  )
+  if (!res.ok) {
+    const detail = await parseError(res)
+    throw new Error(`Failed to get library item (${res.status}): ${detail}`)
+  }
+  return res.json()
+}
+
+export async function deleteLibraryItem(
+  itemId: string,
+  sessionId: string,
+  userId?: string | null
+): Promise<void> {
+  const params = new URLSearchParams({
+    session_id: sessionId,
+  })
+  if (userId) {
+    params.append('user_id', userId)
+  }
+  
+  const res = await fetch(
+    `${backendUrl(`/library/${itemId}`)}?${params}`,
+    { method: 'DELETE' }
+  )
+  if (!res.ok) {
+    const detail = await parseError(res)
+    throw new Error(`Failed to delete library item (${res.status}): ${detail}`)
+  }
+}
+

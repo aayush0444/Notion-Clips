@@ -233,70 +233,103 @@ def _find_fallback_parent_page_id(token: str) -> Optional[str]:
     return None
 
 
-def _find_or_create_master_database(*, token: str, parent_page_id: str) -> str:
+def _find_or_create_master_database(*, token: str, parent_page_id: str) -> tuple[str, Optional[str]]:
+    """
+    Create or find NotionClip database under the user's specified parent page.
+    Respects user's choice - only looks in the parent they specified, nowhere else.
+    If parent is archived/deleted, finds a fallback or creates fresh.
+    
+    Returns: (database_id, status_message)
+    """
     headers = get_headers(token)
-    search_resp = requests.post(
-        "https://api.notion.com/v1/search",
-        headers=headers,
-        json={"query": "NotionClip", "filter": {"property": "object", "value": "database"}},
-        timeout=10,
-    )
-    if search_resp.ok:
-        results = search_resp.json().get("results", [])
-        for result in results:
-            if not isinstance(result, dict):
-                continue
-            title_text = _extract_database_title(result)
-            if title_text.strip() == "NotionClip":
-                found_id = result.get("id", "")
-                if isinstance(found_id, str) and found_id:
-                    if _is_archived_object(result):
-                        continue
-                    db_payload = _retrieve_active_database(found_id, token)
-                    if not db_payload:
-                        continue
-                    _ensure_database_properties(found_id, token)
-                    return found_id
-
+    clean_parent_id = clean_page_id(parent_page_id)
+    status_message = None
+    
+    # Check if NotionClip database already exists under THIS parent page
+    # (Not searching globally - only checking the user's specified location)
+    try:
+        # Get all child blocks of the parent page
+        children_resp = requests.get(
+            f"https://api.notion.com/v1/blocks/{clean_parent_id}/children",
+            headers=headers,
+            timeout=10,
+        )
+        if children_resp.ok:
+            children = children_resp.json().get("results", [])
+            for child in children:
+                if child.get("type") == "child_database":
+                    # Check if this database is named "NotionClip"
+                    db_id = child.get("id")
+                    if db_id:
+                        db_resp = requests.get(
+                            f"https://api.notion.com/v1/databases/{clean_page_id(db_id)}",
+                            headers=headers,
+                            timeout=10,
+                        )
+                        if db_resp.ok:
+                            db_data = db_resp.json()
+                            db_title = _extract_database_title(db_data)
+                            if db_title.strip() == "NotionClip" and not _is_archived_object(db_data):
+                                # Found it! Use this database
+                                _ensure_database_properties(db_id, token)
+                                return db_id, None
+    except Exception:
+        # If check fails, just create new database
+        pass
+    
+    # Database doesn't exist in this parent - create it
+    # Clean name, no emoji, exactly where user wants it
     payload = {
-        "parent": {"type": "page_id", "page_id": clean_page_id(parent_page_id)},
-        "icon": {"type": "emoji", "emoji": "🧠"},
+        "parent": {"type": "page_id", "page_id": clean_parent_id},
         "title": [{"type": "text", "text": {"content": "NotionClip"}}],
         "properties": _database_properties_template(),
     }
+    
     create_resp = requests.post(
         "https://api.notion.com/v1/databases",
         headers=headers,
         json=payload,
         timeout=10,
     )
+    
+    # Handle archived/deleted parent page gracefully
     if not create_resp.ok:
         message = _notion_error_message(create_resp)
-        if _is_archived_ancestor_error(message) and _unarchive_page(parent_page_id, token):
-            create_resp = requests.post(
-                "https://api.notion.com/v1/databases",
-                headers=headers,
-                json=payload,
-                timeout=10,
-            )
-            message = _notion_error_message(create_resp)
-
-        # If the configured parent page was deleted/permanently removed,
-        # create the master DB under any active page the integration can access.
-        if not create_resp.ok:
-            lower_msg = (message or "").lower()
-            missing_parent = (
-                "archived ancestor" in lower_msg
-                or "could not find page" in lower_msg
-                or "object_not_found" in lower_msg
-                or "insufficient permissions" in lower_msg
-            )
-            if missing_parent:
+        lower_msg = (message or "").lower()
+        
+        # Check if parent page is archived or deleted
+        is_parent_archived = (
+            "archived" in lower_msg 
+            or "in_trash" in lower_msg
+            or "trash" in lower_msg
+            or "could not find page" in lower_msg
+            or "object_not_found" in lower_msg
+        )
+        
+        if is_parent_archived:
+            # Parent page is archived/deleted - try to unarchive it first
+            status_message = "⚠️ Parent page was archived. Attempting to restore..."
+            unarchived = _unarchive_page(clean_parent_id, token)
+            if unarchived:
+                status_message = "✓ Parent page restored successfully!"
+                # Retry creating database after unarchiving parent
+                create_resp = requests.post(
+                    "https://api.notion.com/v1/databases",
+                    headers=headers,
+                    json=payload,
+                    timeout=10,
+                )
+            
+            # If still failing, find any active page and create database there
+            if not create_resp.ok:
+                status_message = "⚠️ Unable to restore parent. Finding alternative location..."
                 fallback_parent = _find_fallback_parent_page_id(token)
                 if fallback_parent:
+                    status_message = "✓ Creating database in alternative location"
                     fallback_payload = {
-                        **payload,
                         "parent": {"type": "page_id", "page_id": clean_page_id(fallback_parent)},
+                        "title": [{"type": "text", "text": {"content": "NotionClip"}}],
+                        "properties": _database_properties_template(),
                     }
                     create_resp = requests.post(
                         "https://api.notion.com/v1/databases",
@@ -304,14 +337,20 @@ def _find_or_create_master_database(*, token: str, parent_page_id: str) -> str:
                         json=fallback_payload,
                         timeout=10,
                     )
-                    message = _notion_error_message(create_resp)
-
+        
+        # Final check - if still failed, raise clear error
         if not create_resp.ok:
-            raise Exception(f"Database creation failed: {message[:300]}")
-
+            final_message = _notion_error_message(create_resp)
+            raise Exception(f"Database creation failed: {final_message[:300]}")
+    
     db_id = create_resp.json().get("id", "")
     if isinstance(db_id, str) and db_id:
+        return db_id, status_message
+    
+    raise Exception("Database creation failed: Notion API did not return a database id")
+    if isinstance(db_id, str) and db_id:
         return db_id
+    
     raise Exception("Database creation failed: Notion API did not return a database id")
 
 
@@ -607,7 +646,7 @@ def _create_video_workspace(
     resolved_title = metadata.get("title") or _resolve_video_related_title("Video", title_hint, summary_hint)
     resolved_creator = metadata.get("creator") or "Unknown Creator"
 
-    db_id = _find_or_create_master_database(token=notion_token, parent_page_id=root_parent_page_id)
+    db_id, status_message = _find_or_create_master_database(token=notion_token, parent_page_id=root_parent_page_id)
     db_page_id = _create_database_entry(
         database_id=db_id,
         title=resolved_title,
@@ -678,6 +717,7 @@ def _create_video_workspace(
         "take_notes_page_id": take_notes_page_id,
         "video_title": resolved_title,
         "creator": resolved_creator,
+        "status_message": status_message,
     }
 
 
@@ -691,8 +731,13 @@ def push_timestamp_notes(
     creator_name: Optional[str] = None,
     notion_token: Optional[str] = None,
     notion_page_id: Optional[str] = None,
-) -> str:
+) -> tuple[str, Optional[str]]:
+    """
+    Push timestamp notes to Notion.
+    Returns: (workspace_page_id, status_message)
+    """
     workspace_page_id: Optional[str] = None
+    status_message = None
     if notion_page_id:
         workspace_page_id = clean_page_id(notion_page_id)
 
@@ -704,6 +749,7 @@ def push_timestamp_notes(
             "workspace_page_id": workspace_page_id,
             "video_title": _normalize_title_text(resolved_title),
             "creator": _normalize_title_text(resolved_creator),
+            "status_message": None,
         }
     else:
         parent_page_id = clean_page_id(get_notion_page_id(notion_page_id))
@@ -716,6 +762,8 @@ def push_timestamp_notes(
             source_type="YouTube" if "youtu" in (source_url or "").lower() else "Article",
             notion_token=notion_token,
         )
+    
+    status_message = workspace.get("status_message")
 
     take_notes_page_id = _find_child_page_by_title(
         workspace["workspace_page_id"],
@@ -779,7 +827,7 @@ def push_timestamp_notes(
         notion_token,
     )
 
-    return workspace["workspace_page_id"]
+    return workspace["workspace_page_id"], status_message
 
 
 def create_tasks_database(title: str, parent_page_id: str, notion_token: Optional[str] = None) -> str | None:

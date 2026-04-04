@@ -22,6 +22,7 @@ from backend.content_ingestion import extract_text_from_pdf, extract_text_from_u
 from backend.notion_oauth import router as notion_oauth_router
 from backend.smart_watch import router as smart_watch_router
 from backend.study_session import router as study_session_router
+from backend.unified_library import router as unified_library_router
 from backend.supabase_client import (
     get_cached_insights,
     get_cached_transcript,
@@ -29,6 +30,7 @@ from backend.supabase_client import (
     get_session,
     save_cached_insights,
     save_cached_transcript,
+    save_library_item,
 )
 from gemini import answer_question, extract_insights as generate_insights, get_pre_watch_verdict
 from models import ActionItem, ActionItemList, PreWatchVerdict, StudyNotes, VideoInsights, WorkBrief, SynthesisAnalysis
@@ -251,6 +253,7 @@ class PushResponse(BaseModel):
     page_url: Optional[str] = None
     row_page_id: Optional[str] = None
     database_id: Optional[str] = None
+    status_message: Optional[str] = None
 
 
 class PushTimestampNotePayload(BaseModel):
@@ -354,6 +357,7 @@ app.add_middleware(
 app.include_router(notion_oauth_router)
 app.include_router(smart_watch_router)
 app.include_router(study_session_router)
+app.include_router(unified_library_router)
 PROMPT_VERSION = "v1"
 
 # MVP in-memory capture store for extension in-player moments.
@@ -726,6 +730,7 @@ async def push_to_notion_endpoint(payload: PushRequest) -> PushResponse:
         logger.exception("Failed to push insights to Notion")
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     
+    status_msg = None
     if payload.timestamp_notes:
         try:
             summary_hint = ""
@@ -740,7 +745,7 @@ async def push_to_notion_endpoint(payload: PushRequest) -> PushResponse:
             else:
                 summary_hint = str(payload.insights.get("summary") or payload.insights.get("title") or "")
     
-            push_timestamp_notes(
+            _, status_msg = push_timestamp_notes(
                 mode=payload.mode,
                 source_url=payload.video_url or "",
                 timestamp_notes=[item.dict() for item in payload.timestamp_notes],
@@ -755,6 +760,79 @@ async def push_to_notion_endpoint(payload: PushRequest) -> PushResponse:
             )
         except Exception as exc:
             logger.warning("Timestamp note sync skipped for /push request: %s", exc)
+
+    # Save to unified library
+    try:
+        video_id = extract_video_id(payload.video_url or "") if payload.video_url else None
+        
+        # Determine content type based on mode
+        content_type_map = {
+            "study": "youtube_study",
+            "work": "youtube_work",
+            "quick": "youtube_quick",
+        }
+        content_type = content_type_map.get(payload.mode, "youtube_quick")
+        
+        # Extract title and summary based on mode
+        title = str(payload.insights.get("title") or "Untitled")
+        summary = ""
+        content_data = {}
+        
+        if payload.mode == "study":
+            summary = str(payload.insights.get("core_concept") or "")
+            content_data = {
+                "core_concept": payload.insights.get("core_concept"),
+                "formula_sheet": payload.insights.get("formula_sheet"),
+                "key_facts": payload.insights.get("key_facts"),
+                "common_mistakes": payload.insights.get("common_mistakes"),
+                "self_test": payload.insights.get("self_test"),
+                "prerequisites": payload.insights.get("prerequisites"),
+                "further_reading": payload.insights.get("further_reading"),
+                "moments": payload.insights.get("moments"),
+            }
+        elif payload.mode == "work":
+            summary = str(payload.insights.get("one_liner") or "")
+            content_data = {
+                "one_liner": payload.insights.get("one_liner"),
+                "recommendation": payload.insights.get("recommendation"),
+                "key_points": payload.insights.get("key_points"),
+                "tools_mentioned": payload.insights.get("tools_mentioned"),
+                "decisions_to_make": payload.insights.get("decisions_to_make"),
+                "next_actions": payload.insights.get("next_actions"),
+                "moments": payload.insights.get("moments"),
+            }
+        else:  # quick mode
+            summary = str(payload.insights.get("summary") or "")
+            content_data = {
+                "summary": payload.insights.get("summary"),
+                "key_takeaways": payload.insights.get("key_takeaways"),
+                "topics_covered": payload.insights.get("topics_covered"),
+                "action_items": payload.insights.get("action_items"),
+                "moments": payload.insights.get("moments"),
+            }
+        
+        # Get user_id if available from session
+        user_id = None
+        if payload.session_id:
+            session = get_session(payload.session_id)
+            if session:
+                user_id = session.get("user_id")
+        
+        # Save to library
+        save_library_item(
+            session_id=payload.session_id or "unknown",
+            user_id=user_id,
+            content_type=content_type,
+            title=title,
+            source_url=payload.video_url,
+            video_id=video_id,
+            summary=summary,
+            content_data=content_data,
+            notion_page_id=page_id,
+        )
+        logger.info(f"Saved {content_type} to library: {title}")
+    except Exception as exc:
+        logger.warning(f"Failed to save to library: {exc}")
 
     database_id = _resolve_parent_database_id(page_id, creds["token"]) if page_id else None
     return PushResponse(

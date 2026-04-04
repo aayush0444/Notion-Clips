@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react"
 import { Navbar } from "@/components/layout/Navbar"
 import { useAppStore } from "@/lib/store"
-import { smartWatchAnalytics, smartWatchDashboard, smartWatchHistory } from "@/lib/api"
-import { SmartWatchDashboardResponse, SmartWatchHistoryItem } from "@/lib/types"
+import { smartWatchAnalytics, smartWatchDashboard, smartWatchHistory, getLibrary } from "@/lib/api"
+import { SmartWatchDashboardResponse, SmartWatchHistoryItem, UnifiedLibraryItem, LibraryContentType } from "@/lib/types"
 import Link from "next/link"
 
 function formatMs(ms: number) {
@@ -16,6 +16,7 @@ type SortKey = "newest" | "oldest" | "confidence"
 type VerdictFilter = "all" | "watch" | "skim" | "skip"
 type ModeFilter = "all" | "study" | "work" | "quick"
 type DateFilter = "all" | "today" | "week" | "month"
+type ContentTypeFilter = "all" | LibraryContentType
 
 const selectStyle = { colorScheme: "light" } as const
 const selectClassName =
