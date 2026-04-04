@@ -36,7 +36,7 @@ export default function HomePage() {
     let ry = 0
     let cursorFrame = 0
 
-    const onMouseMove = (e: MouseEvent) => {
+    const onMouseMove = (e: globalThis.MouseEvent) => {
       mx = e.clientX
       my = e.clientY
     }
@@ -92,7 +92,7 @@ export default function HomePage() {
 
     let ox = 0
     let oy = 0
-    const onMouseMoveParallax = (e: MouseEvent) => {
+    const onMouseMoveParallax = (e: globalThis.MouseEvent) => {
       ox = (e.clientX / window.innerWidth - 0.5) * 2
       oy = (e.clientY / window.innerHeight - 0.5) * 2
     }
@@ -115,7 +115,7 @@ export default function HomePage() {
       document.querySelectorAll(selector).forEach((element) => {
         const el = element as HTMLElement
         const onMove = (e: Event) => {
-          const evt = e as MouseEvent
+          const evt = e as unknown as MouseEvent
           const rect = el.getBoundingClientRect()
           const dx = (evt.clientX - rect.left - rect.width / 2) / (rect.width / 2)
           const dy = (evt.clientY - rect.top - rect.height / 2) / (rect.height / 2)
@@ -143,7 +143,7 @@ export default function HomePage() {
     let onHeroLeave: (() => void) | null = null
     if (heroVisual && mockupWrapper) {
       onHeroMove = (e: Event) => {
-        const evt = e as MouseEvent
+        const evt = e as unknown as MouseEvent
         const rect = heroVisual.getBoundingClientRect()
         heroDx = (evt.clientX - rect.left - rect.width / 2) / (rect.width / 2)
         heroDy = (evt.clientY - rect.top - rect.height / 2) / (rect.height / 2)
