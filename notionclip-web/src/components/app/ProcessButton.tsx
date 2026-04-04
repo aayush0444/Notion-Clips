@@ -148,18 +148,18 @@ export function ProcessButton({ onProcessingChange, onStageChange }: ProcessButt
     <div className="w-full">
       <Button 
         variant="default" 
-        className="w-full bg-primary text-primary-foreground py-3.5 rounded-lg hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all text-sm font-medium h-auto"
+        className="h-auto w-full rounded-lg bg-primary py-4 text-lg font-medium text-primary-foreground transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
         disabled={!canProcess || loading}
         onClick={handleProcess}
         title={modeHint[mode]}
       >
         {loading ? "Building your output..." : sourceType === 'youtube' ? 'Process Video' : modeCta[mode]}
       </Button>
-      <p className="mt-2 text-xs text-slate-500" title={modeHint[mode]}>
+      <p className="mt-3 text-base leading-relaxed text-slate-500" title={modeHint[mode]}>
         {modeHint[mode]} · {sourceHint[sourceType]}
       </p>
       {error && (
-        <p className="text-center text-sm text-danger mt-3">
+        <p className="text-center text-base text-danger mt-3">
           {error || "We hit a temporary issue. Please retry in a few seconds."}
         </p>
       )}

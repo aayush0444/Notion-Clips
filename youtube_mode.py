@@ -221,7 +221,7 @@ def _fetch_via_scraping(video_id: str) -> tuple | None:
 
 # ─── Main Transcript Function ─────────────────────────────────────────────────
 
-def get_youtube_transcript(video_id: str) -> tuple[str, float]:
+def get_youtube_transcript(video_id: str, allow_supadata: bool = True) -> tuple[str, float]:
     """
     Fetch transcript using environment-aware priority:
       Local/dev  -> scraping_first
@@ -236,6 +236,8 @@ def get_youtube_transcript(video_id: str) -> tuple[str, float]:
     print(f"  ⚙️  Transcript strategy: {strategy}")
 
     def _return_supadata_with_optional_timestamps() -> tuple[str, float] | None:
+        if not allow_supadata:
+            return None
         supadata_result = _fetch_via_supadata(video_id)
         if not supadata_result:
             return None
@@ -253,7 +255,7 @@ def get_youtube_transcript(video_id: str) -> tuple[str, float]:
         print(f"  📝 {len(plain_text.split()):,} words | ~{duration:.1f} min | Supadata (no timestamps)")
         return plain_text, duration
 
-    if strategy == "supadata_first":
+    if strategy == "supadata_first" and allow_supadata:
         primary = _return_supadata_with_optional_timestamps()
         if primary:
             return primary
@@ -274,15 +276,19 @@ def get_youtube_transcript(video_id: str) -> tuple[str, float]:
         if fallback:
             return fallback
 
-    raise Exception(
-        "Could not fetch transcript for this video.\n\n"
-        "Possible reasons:\n"
-        "• Video has no captions enabled\n"
-        "• Video is private or age-restricted\n"
-        "• YouTube transcript endpoint blocked for this request\n"
-        "• Supadata fallback unavailable/quota exceeded\n"
-        "• Video is too new (captions not yet generated)"
-    )
+    error_reasons = [
+        "Could not fetch transcript for this video.",
+        "",
+        "Possible reasons:",
+        "• Video has no captions enabled",
+        "• Video is private or age-restricted",
+        "• YouTube transcript endpoint blocked for this request",
+    ]
+    if allow_supadata:
+        error_reasons.append("• Supadata fallback unavailable/quota exceeded")
+    error_reasons.append("• Video is too new (captions not yet generated)")
+
+    raise Exception("\n".join(error_reasons))
 
 
 def get_transcript_source_info() -> str:

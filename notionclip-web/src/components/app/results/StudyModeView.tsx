@@ -1,11 +1,56 @@
 "use client"
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { StudyInsights } from '@/lib/types'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import ExportButtons from '@/components/ExportButtons'
+import { TimestampMomentsPanel } from './TimestampMomentsPanel'
 
-export function StudyModeView({ data, sourceUrl }: { data: StudyInsights; sourceUrl?: string }) {
+export function StudyModeView({
+  data,
+  sourceUrl,
+  sessionId,
+  notionPageId,
+}: {
+  data: StudyInsights
+  sourceUrl?: string
+  sessionId?: string | null
+  notionPageId?: string | null
+}) {
   const [expandedQuestions, setExpandedQuestions] = useState<number[]>([])
+  const [videoTitle, setVideoTitle] = useState<string>("")
+  const resolvedTitle = (data.title || '').trim()
+  const displayTitle = videoTitle || resolvedTitle || 'Study Notes'
+
+  useEffect(() => {
+    const url = (sourceUrl || '').trim()
+    if (!url || !/youtu\.be|youtube\.com/i.test(url)) {
+      setVideoTitle("")
+      return
+    }
+
+    let cancelled = false
+    const controller = new AbortController()
+    const loadTitle = async () => {
+      try {
+        const params = new URLSearchParams({ url, format: "json" })
+        const response = await fetch(`https://www.youtube.com/oembed?${params.toString()}`, {
+          signal: controller.signal,
+        })
+        if (!response.ok) return
+        const payload = await response.json()
+        const title = typeof payload?.title === "string" ? payload.title.trim() : ""
+        if (!cancelled) setVideoTitle(title)
+      } catch {
+        if (!cancelled) setVideoTitle("")
+      }
+    }
+
+    loadTitle()
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [sourceUrl])
 
   const toggleQuestion = (index: number) => {
     setExpandedQuestions(prev =>
@@ -15,6 +60,25 @@ export function StudyModeView({ data, sourceUrl }: { data: StudyInsights; source
 
   return (
     <div className="space-y-6">
+      <div className="border border-[#E2D9F0] bg-white/70 rounded-xl p-5">
+        <div className="text-xs uppercase tracking-[0.2em] text-muted">Study Notes</div>
+        <div className="mt-2 text-2xl font-semibold text-foreground/90">
+          {displayTitle}
+        </div>
+        <div className="mt-1 text-sm text-foreground/60">
+          Structured, timestamped notes generated from the video.
+        </div>
+      </div>
+      <TimestampMomentsPanel
+        data={data}
+        sourceUrl={sourceUrl}
+        mode="study"
+        sessionId={sessionId}
+        notionPageId={notionPageId}
+        aiSummary={data.core_concept}
+        videoTitle={videoTitle || resolvedTitle}
+      />
+
       <div className="bg-[#E9F0FB] border border-[#C8D9F2] rounded-lg p-6">
         <div className="text-xs text-[#2F4E77] mb-2 uppercase tracking-wider">Core Concept</div>
         <div className="text-foreground/90 leading-relaxed text-sm">

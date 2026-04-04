@@ -3,8 +3,19 @@ import { WorkInsights } from '@/lib/types'
 import { CheckSquare, Square } from 'lucide-react'
 import { useState } from 'react'
 import ExportButtons from '@/components/ExportButtons'
+import { TimestampMomentsPanel } from './TimestampMomentsPanel'
 
-export function WorkModeView({ data, sourceUrl }: { data: WorkInsights; sourceUrl?: string }) {
+export function WorkModeView({
+  data,
+  sourceUrl,
+  sessionId,
+  notionPageId,
+}: {
+  data: WorkInsights
+  sourceUrl?: string
+  sessionId?: string | null
+  notionPageId?: string | null
+}) {
   const [checkedItems, setCheckedItems] = useState<number[]>([])
   const recommendation = data.recommendation || data.watch_or_skip || "Recommendation unavailable"
   const isWatch = recommendation.toLowerCase().startsWith("watch")
@@ -17,6 +28,16 @@ export function WorkModeView({ data, sourceUrl }: { data: WorkInsights; sourceUr
 
   return (
     <div className="space-y-6">
+      <TimestampMomentsPanel
+        data={data}
+        sourceUrl={sourceUrl}
+        mode="work"
+        sessionId={sessionId}
+        notionPageId={notionPageId}
+        aiSummary={data.one_liner || data.recommendation}
+        videoTitle={data.title}
+      />
+
       <div className="flex items-center gap-4">
         <div className={`inline-flex items-center gap-2 rounded-lg px-4 py-2.5 border ${
           isWatch

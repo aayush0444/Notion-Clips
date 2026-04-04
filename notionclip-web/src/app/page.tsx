@@ -1,9 +1,31 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { useCallback, useEffect, useState, type MouseEvent } from "react"
 
 export default function HomePage() {
+  const router = useRouter()
+  const [isTransitioning, setIsTransitioning] = useState(false)
+
+  const handleAppNavigation = useCallback((event: MouseEvent<HTMLAnchorElement>) => {
+    if (
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return
+    }
+    event.preventDefault()
+    if (isTransitioning) return
+    setIsTransitioning(true)
+    window.setTimeout(() => {
+      router.push("/app")
+    }, 220)
+  }, [isTransitioning, router])
+
   useEffect(() => {
     const cursor = document.getElementById("cursor")
     const ring = document.getElementById("cursor-ring")
@@ -203,7 +225,7 @@ export default function HomePage() {
 
   return (
     <>
-      <style jsx global>{`
+      <style suppressHydrationWarning dangerouslySetInnerHTML={{ __html: `
         .landing-page *, .landing-page *::before, .landing-page *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         .landing-page {
@@ -437,6 +459,24 @@ export default function HomePage() {
         @keyframes fadeUp { from { opacity: 0; transform: translateY(22px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes floatLight { 0%, 100% { transform: translateY(0) rotateX(1.5deg); } 50% { transform: translateY(-12px) rotateX(0deg); } }
 
+        .route-transition {
+          position: fixed;
+          inset: 0;
+          z-index: 220;
+          pointer-events: none;
+          opacity: 0;
+          background:
+            radial-gradient(900px 420px at 20% 20%, rgba(122, 91, 181, 0.22), transparent 70%),
+            radial-gradient(760px 360px at 80% 75%, rgba(80, 140, 100, 0.16), transparent 72%),
+            rgba(245, 240, 252, 0.22);
+          backdrop-filter: blur(0px);
+          transition: opacity 220ms ease, backdrop-filter 220ms ease;
+        }
+        .route-transition.active {
+          opacity: 1;
+          backdrop-filter: blur(4px);
+        }
+
         .reveal { opacity: 0; transform: translateY(26px); transition: opacity 0.75s ease, transform 0.75s ease; }
         .reveal.visible { opacity: 1; transform: translateY(0); }
 
@@ -453,8 +493,9 @@ export default function HomePage() {
           .cta-inner { padding: 52px 28px; }
           .footer-inner { flex-direction: column; gap: 20px; text-align: center; }
         }
-      `}</style>
+      ` }} />
 
+      <div className={`route-transition ${isTransitioning ? "active" : ""}`} aria-hidden="true" />
       <main className="landing-page">
         <div id="cursor" />
         <div id="cursor-ring" />
@@ -469,7 +510,7 @@ export default function HomePage() {
               <a href="#how">How it works</a>
               <a href="#modes">Modes</a>
               <a href="#pricing">Pricing</a>
-              <Link href="/app" className="nav-cta">Try free →</Link>
+              <Link href="/app" onClick={handleAppNavigation} className="nav-cta">Try free →</Link>
             </div>
           </div>
         </nav>
@@ -489,7 +530,7 @@ export default function HomePage() {
               Get structured notes built for your intent — pushed directly to Notion.
             </p>
             <div className="hero-actions">
-              <Link href="/app" className="btn-primary">Start for free</Link>
+              <Link href="/app" onClick={handleAppNavigation} className="btn-primary">Start for free</Link>
               <a href="#how" className="btn-ghost">See how it works <span className="arrow">→</span></a>
             </div>
 
@@ -686,7 +727,7 @@ export default function HomePage() {
                   <li style={{ opacity: 0.35 }}><span>–</span> Cross-source synthesis</li>
                   <li style={{ opacity: 0.35 }}><span>–</span> Question-first mode</li>
                 </ul>
-                <Link href="/app" className="pricing-btn pricing-btn-ghost">Get started free</Link>
+                <Link href="/app" onClick={handleAppNavigation} className="pricing-btn pricing-btn-ghost">Get started free</Link>
               </div>
               <div className="pricing-card featured">
                 <div className="pricing-plan">Pro</div>
@@ -700,7 +741,7 @@ export default function HomePage() {
                   <li><span className="pricing-check">✓</span> Smart watch verdict</li>
                   <li><span className="pricing-check">✓</span> Full history + export</li>
                 </ul>
-                <Link href="/app" className="pricing-btn pricing-btn-solid">Start Pro free for 7 days</Link>
+                <Link href="/app" onClick={handleAppNavigation} className="pricing-btn pricing-btn-solid">Start Pro free for 7 days</Link>
               </div>
             </div>
           </div>
@@ -711,7 +752,7 @@ export default function HomePage() {
             <div className="cta-inner reveal">
               <h2 className="cta-headline">Stop watching.<br /><em>Start knowing.</em></h2>
               <p className="cta-sub">The next 45-minute video you would have half-watched becomes 3 minutes of exactly what you needed.</p>
-              <Link href="/app" className="btn-primary" style={{ display: "inline-block" }}>Try NotionClip free →</Link>
+              <Link href="/app" onClick={handleAppNavigation} className="btn-primary" style={{ display: "inline-block" }}>Try NotionClip free →</Link>
               <p className="cta-note">No credit card · Works with any Notion workspace</p>
             </div>
           </div>

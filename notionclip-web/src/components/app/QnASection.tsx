@@ -1,7 +1,7 @@
 "use client"
 import { useState, useRef, useEffect } from 'react'
 import { useAppStore } from '@/lib/store'
-import { Send } from 'lucide-react'
+import { Loader2, Send } from 'lucide-react'
 import { api } from '@/lib/api'
 
 interface Message {
@@ -15,6 +15,7 @@ export function QnASection() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [error, setError] = useState("")
+  const [isAsking, setIsAsking] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -47,6 +48,7 @@ export function QnASection() {
     setMessages(newMessages)
     setInput("")
     setError("")
+    setIsAsking(true)
 
     try {
       let answer = await api.askChat(
@@ -65,6 +67,8 @@ export function QnASection() {
       setMessages([...newMessages, { role: 'assistant', content: answer, notionEdited }])
     } catch (err: any) {
       setError(err?.message || "Couldn’t get a clean answer right now. Please try again.")
+    } finally {
+      setIsAsking(false)
     }
   }
 
@@ -96,6 +100,19 @@ export function QnASection() {
               )}
             </div>
           ))}
+          {isAsking && (
+            <div className="text-foreground/75 pl-3 border-l-2 border-[#CDBAEF]">
+              <span className="inline-flex items-center gap-2 text-sm font-medium">
+                <span className="h-4 w-4 rounded-full border-2 border-[#CCB8EE] border-t-[#6F52A8] animate-spin" />
+                <span className="text-[#5E4A85]">Thinking</span>
+                <span className="inline-flex items-center gap-1" aria-hidden="true">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#6F52A8] animate-pulse" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#6F52A8] animate-pulse [animation-delay:120ms]" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#6F52A8] animate-pulse [animation-delay:240ms]" />
+                </span>
+              </span>
+            </div>
+          )}
           <div ref={messagesEndRef} />
         </div>
       )}
@@ -117,11 +134,15 @@ export function QnASection() {
         />
         <button
           onClick={() => handleSend(input)}
-          disabled={!input.trim()}
+          disabled={!input.trim() || isAsking}
           title="Send question"
           className="px-4 py-2.5 bg-[#F0EBF8] hover:bg-[#E4D9F5] disabled:opacity-40 disabled:cursor-not-allowed border border-border rounded-lg transition-all"
         >
-          <Send className="w-4 h-4 text-[#5A4A72]" />
+          {isAsking ? (
+            <Loader2 className="w-4 h-4 text-[#5A4A72] animate-spin" />
+          ) : (
+            <Send className="w-4 h-4 text-[#5A4A72]" />
+          )}
         </button>
       </div>
       {error && <p className="mt-3 text-sm text-[#A0527A]">{error}</p>}

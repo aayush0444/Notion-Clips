@@ -238,24 +238,31 @@ export function SmartWatch({ videoUrl, sessionId }: SmartWatchProps) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between rounded-lg border border-[#ddd4f6] bg-white/80 px-3 py-2">
+      <div className="flex items-center justify-between rounded-lg border border-[#ddd4f6] bg-white/90 px-3 py-2">
         <div className="text-sm text-slate-800">Smart Watch mode</div>
-        <button
-          type="button"
-          onClick={() => setEnabled((v) => !v)}
-          title={enabled ? "Disable Smart Watch pre-check" : "Enable Smart Watch pre-check"}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
-            enabled ? "bg-primary" : "bg-white/20"
-          }`}
-          aria-pressed={enabled}
-          aria-label="Toggle Smart Watch mode"
-        >
-          <span
-            className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${
-              enabled ? "translate-x-5" : "translate-x-1"
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setEnabled((v) => !v)}
+            title={enabled ? "Disable Smart Watch pre-check" : "Enable Smart Watch pre-check"}
+            className={`relative inline-flex h-6 w-12 items-center rounded-full border transition ${
+              enabled
+                ? "border-[#7A5BB5] bg-[#7A5BB5]"
+                : "border-[#CBBCE9] bg-[#ECE6F8]"
             }`}
-          />
-        </button>
+            aria-pressed={enabled}
+            aria-label="Toggle Smart Watch mode"
+          >
+            <span
+              className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition ${
+                enabled ? "translate-x-6" : "translate-x-1"
+              }`}
+            />
+          </button>
+          <span className={`text-xs font-medium ${enabled ? "text-[#6A4EA4]" : "text-[#7B6D98]"}`}>
+            {enabled ? "ON" : "OFF"}
+          </span>
+        </div>
       </div>
 
       {enabled && videoUrl && (

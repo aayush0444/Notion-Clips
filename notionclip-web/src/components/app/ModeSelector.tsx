@@ -25,16 +25,16 @@ export function ModeSelector({ onViewModeChange }: ModeSelectorProps = {}) {
 
   return (
     <div>
-      <label className="block text-xs app-text-muted mb-3 uppercase tracking-wider">
+      <label className="mb-3 block text-sm app-text-muted uppercase tracking-[0.12em]">
         Mode
       </label>
       
       {/* View Mode Tabs */}
-      <div className="flex gap-2 bg-card/80 p-1 rounded-lg border border-border mb-4">
+      <div className="mb-5 flex gap-2 rounded-lg border border-border bg-card/80 p-1.5">
         <button
           onClick={() => handleViewModeChange('extract')}
           className={cn(
-            "flex-1 px-3 py-2 rounded-md text-sm transition-all duration-200",
+            "flex-1 rounded-md px-3 py-3 text-[1.02rem] transition-all duration-200",
             viewMode === 'extract'
               ? "bg-[#EDE6FA] text-[#3D2466] border border-[#CDBAEF]"
               : "text-foreground/55 hover:text-foreground/80 hover:bg-[#F0EBF8]"
@@ -45,7 +45,7 @@ export function ModeSelector({ onViewModeChange }: ModeSelectorProps = {}) {
         <button
           onClick={() => handleViewModeChange('synthesis')}
           className={cn(
-            "flex-1 px-3 py-2 rounded-md text-sm transition-all duration-200",
+            "flex-1 rounded-md px-3 py-3 text-[1.02rem] transition-all duration-200",
             viewMode === 'synthesis'
               ? "bg-[#F1E8F6] text-[#7A5BB5] border border-[#D9C2E8]"
               : "text-foreground/55 hover:text-foreground/80 hover:bg-[#F0EBF8]"
@@ -58,10 +58,10 @@ export function ModeSelector({ onViewModeChange }: ModeSelectorProps = {}) {
       {/* Processing Modes (only show if extract view) */}
       {viewMode === 'extract' && (
       <>
-      <label className="block text-xs app-text-muted mb-2 uppercase tracking-wider">
+      <label className="mb-2 block text-sm app-text-muted uppercase tracking-[0.12em]">
         Processing Mode
       </label>
-    <div className="flex gap-2 bg-card/80 p-1 rounded-lg border border-border">
+    <div className="flex gap-2 rounded-lg border border-border bg-card/80 p-1.5">
         {modes.map(m => {
           const isActive = mode === m.id
           return (
@@ -69,7 +69,7 @@ export function ModeSelector({ onViewModeChange }: ModeSelectorProps = {}) {
               key={m.id}
               onClick={() => setMode(m.id)}
               className={cn(
-                "flex-1 px-4 py-2.5 rounded-md text-sm transition-all duration-200",
+                "flex-1 rounded-md px-4 py-3.5 text-[1.02rem] transition-all duration-200",
                 isActive 
                   ? m.id === 'study'
                     ? "bg-[#E9F0FB] text-[#2F4E77] border border-[#C8D9F2]"
@@ -84,7 +84,7 @@ export function ModeSelector({ onViewModeChange }: ModeSelectorProps = {}) {
           )
         })}
       </div>
-      <div className="mt-3 text-xs app-text-muted leading-relaxed">
+      <div className="mt-4 text-base app-text-muted leading-relaxed">
         {mode === 'study' && 'Build deep study notes with core concepts, formulas, and exam-ready revision prompts.'}
         {mode === 'work' && 'Get a practical work brief with a clear verdict, decisions, and next actions.'}
         {mode === 'quick' && 'Capture the fastest high-signal summary with takeaways and useful follow-ups.'}
@@ -94,8 +94,8 @@ export function ModeSelector({ onViewModeChange }: ModeSelectorProps = {}) {
       
       {/* Synthesis Mode Info */}
       {viewMode === 'synthesis' && (
-        <div className="mt-3 p-3 rounded-lg bg-[#F1E8F6] border border-[#D9C2E8]">
-          <p className="text-xs text-[#7A5BB5] leading-relaxed">
+        <div className="mt-4 rounded-lg border border-[#D9C2E8] bg-[#F1E8F6] p-5">
+          <p className="text-base text-[#7A5BB5] leading-relaxed">
             🔗 Compare and synthesize insights across multiple sessions. Identify patterns, contradictions, and knowledge gaps.
           </p>
         </div>

@@ -59,6 +59,7 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL = "openai/gpt-4o-mini"
 GEMINI_MODEL = "gemini-2.0-flash"
 PROMPT_VERSION = "smart-watch-v1"
+QUICK_CHECK_WORD_BUDGET = 700
 
 
 class SmartWatchQuickRequest(BaseModel):
@@ -158,6 +159,31 @@ class SmartWatchDashboardResponse(BaseModel):
     estimated_time_saved_minutes: float
 
 
+class SearchResultVideoMeta(BaseModel):
+    video_id: str
+    title: str
+    channel_name: Optional[str] = None
+    duration: Optional[str] = None
+
+
+class SearchResultVerdictRequest(BaseModel):
+    search_query: str
+    videos: List[SearchResultVideoMeta] = Field(default_factory=list)
+
+
+class SearchResultVerdictItem(BaseModel):
+    video_id: str
+    verdict: str
+    reason: str
+    confidence: float = 0.5
+
+
+class SearchResultVerdictResponse(BaseModel):
+    items: List[SearchResultVerdictItem]
+    stage_ms: int
+    prompt_version: str = PROMPT_VERSION
+
+
 def _safe_stage1_default(video_id: str, stage1_ms: int = 0) -> Dict[str, Any]:
     return {
         "verdict": "skim",
@@ -168,6 +194,143 @@ def _safe_stage1_default(video_id: str, stage1_ms: int = 0) -> Dict[str, Any]:
         "cache_hit": False,
         "stage1_ms": stage1_ms,
     }
+
+
+def _normalize_search_verdict(value: str) -> str:
+    verdict = str(value or "").strip().lower()
+    if verdict in {"watch", "skim", "skip"}:
+        return verdict
+    return "skim"
+
+
+def _metadata_heuristic_verdict(search_query: str, video: Dict[str, Any]) -> Dict[str, Any]:
+    query_tokens = {t for t in re.split(r"\W+", search_query.lower()) if len(t) > 2}
+    title = str(video.get("title") or "").lower()
+    channel = str(video.get("channel_name") or "").lower()
+    haystack = f"{title} {channel}"
+    overlap = sum(1 for token in query_tokens if token in haystack)
+    if overlap >= 3:
+        return {
+            "verdict": "watch",
+            "confidence": 0.75,
+            "reason": "Title and channel strongly match your search intent.",
+        }
+    if overlap >= 1:
+        return {
+            "verdict": "skim",
+            "confidence": 0.58,
+            "reason": "Partially relevant by title keywords; verify focus before deep watching.",
+        }
+    return {
+        "verdict": "skip",
+        "confidence": 0.42,
+        "reason": "Metadata appears weakly related to your search intent.",
+    }
+
+
+async def _run_search_result_batch_verdict(
+    search_query: str,
+    videos: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    if not key:
+        return [
+            {
+                "video_id": str(v.get("video_id") or ""),
+                **_metadata_heuristic_verdict(search_query, v),
+            }
+            for v in videos
+        ]
+
+    system_prompt = """
+You are ranking YouTube search results for learning relevance.
+Given one search query (user intent) and up to 8 candidate videos with metadata,
+return a verdict for each candidate.
+
+Rules:
+- Use ONLY metadata (title, channel, duration).
+- Return exactly one of: watch, skim, skip.
+- watch: highly relevant and likely worth full viewing.
+- skim: somewhat relevant, probably selective viewing.
+- skip: weakly relevant or off-intent.
+- reason must be one short sentence.
+
+Return ONLY valid JSON in this exact shape:
+{
+  "items": [
+    {"video_id": "...", "verdict": "watch|skim|skip", "confidence": 0.0, "reason": "..."}
+  ]
+}
+"""
+
+    user_payload = {
+        "search_query": search_query,
+        "videos": videos,
+    }
+
+    payload = {
+        "model": OPENROUTER_MODEL,
+        "temperature": 0,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+        ],
+    }
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+
+    try:
+        async with httpx.AsyncClient(timeout=12) as client:
+            resp = await client.post(OPENROUTER_BASE_URL, headers=headers, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            content = data["choices"][0]["message"]["content"]
+            parsed = _clean_json(content)
+            raw_items = parsed.get("items") or []
+            if not isinstance(raw_items, list):
+                raise ValueError("Invalid items payload")
+
+            by_id = {str(v.get("video_id") or ""): v for v in videos}
+            out: List[Dict[str, Any]] = []
+            for item in raw_items:
+                if not isinstance(item, dict):
+                    continue
+                video_id = str(item.get("video_id") or "").strip()
+                if not video_id or video_id not in by_id:
+                    continue
+                confidence = float(item.get("confidence", 0.5))
+                confidence = max(0.0, min(1.0, confidence))
+                reason = str(item.get("reason") or "Metadata relevance estimate.").strip()
+                if not reason:
+                    reason = "Metadata relevance estimate."
+                out.append(
+                    {
+                        "video_id": video_id,
+                        "verdict": _normalize_search_verdict(item.get("verdict")),
+                        "confidence": confidence,
+                        "reason": reason[:180],
+                    }
+                )
+
+            if not out:
+                raise ValueError("No usable verdicts")
+
+            seen = {o["video_id"] for o in out}
+            for video in videos:
+                video_id = str(video.get("video_id") or "")
+                if not video_id or video_id in seen:
+                    continue
+                out.append({"video_id": video_id, **_metadata_heuristic_verdict(search_query, video)})
+
+            return out
+    except Exception as exc:
+        logger.warning("Search result batch verdict failed, using heuristic fallback: %s", exc)
+        return [
+            {
+                "video_id": str(v.get("video_id") or ""),
+                **_metadata_heuristic_verdict(search_query, v),
+            }
+            for v in videos
+        ]
 
 
 def _clean_json(raw: str) -> Dict[str, Any]:
@@ -224,7 +387,20 @@ def _first_quarter_text(transcript: str) -> str:
     return " ".join(tokens[:end])
 
 
-async def _run_stage1_quick_check(user_question: str, video_title: str, transcript_opening: str) -> Dict[str, Any]:
+def _fixed_budget_excerpt(transcript: str, word_budget: int = QUICK_CHECK_WORD_BUDGET) -> str:
+    tokens = transcript.split()
+    if not tokens:
+        return ""
+    safe_budget = max(600, min(800, int(word_budget)))
+    return " ".join(tokens[:safe_budget])
+
+
+async def _run_stage1_quick_check(
+    user_question: str,
+    video_title: str,
+    transcript_opening: str,
+    excerpt_label: str = "Transcript excerpt",
+) -> Dict[str, Any]:
     system_prompt = """
 You are a precise content analyst. You will be given the opening portion
 of a YouTube video transcript and a user's learning question.
@@ -253,7 +429,7 @@ Be strict. Do not give "watch" unless you are genuinely confident.
     user_prompt = f"""
 User question: {user_question}
 Video title: {video_title}
-Transcript opening (first 25%):
+{excerpt_label}:
 {transcript_opening}
 """
 
@@ -417,6 +593,7 @@ async def smart_watch_quick_check(payload: SmartWatchQuickRequest):
 
     cache_hit = False
     transcript: Optional[str] = (payload.transcript or "").strip() or None
+    direct_transcript = bool(transcript)
     duration_minutes: float = 0.0
 
     if not transcript:
@@ -447,9 +624,15 @@ async def smart_watch_quick_check(payload: SmartWatchQuickRequest):
         except Exception as exc:
             logger.warning("Smart Watch transcript cache write failed: %s", exc)
 
-    opening = _first_quarter_text(transcript)
+    if direct_transcript:
+        opening = _fixed_budget_excerpt(transcript, QUICK_CHECK_WORD_BUDGET)
+        excerpt_label = "Transcript opening (fixed 700-word budget from extension)"
+    else:
+        opening = _first_quarter_text(transcript)
+        excerpt_label = "Transcript opening (first 25%)"
+
     video_title = video_id
-    stage1 = await _run_stage1_quick_check(question, video_title, opening)
+    stage1 = await _run_stage1_quick_check(question, video_title, opening, excerpt_label=excerpt_label)
     stage1_ms = int((time.perf_counter() - stage1_start) * 1000)
     out = _safe_stage1_default(video_id=video_id, stage1_ms=stage1_ms)
     out.update(stage1)
@@ -499,6 +682,52 @@ async def smart_watch_quick_check(payload: SmartWatchQuickRequest):
         logger.warning("Failed tracking quick-check analytics: %s", exc)
 
     return SmartWatchQuickResult(**out)
+
+
+@router.post("/search-verdicts", response_model=SearchResultVerdictResponse)
+async def smart_watch_search_verdicts(payload: SearchResultVerdictRequest):
+    stage_start = time.perf_counter()
+    search_query = (payload.search_query or "").strip()
+    if not search_query:
+        return JSONResponse(status_code=400, content={"error": "invalid_input", "message": "search_query is required"})
+
+    source_videos = payload.videos[:8]
+    if not source_videos:
+        return SearchResultVerdictResponse(items=[], stage_ms=0)
+
+    videos: List[Dict[str, Any]] = []
+    for v in source_videos:
+        video_id = str(v.video_id or "").strip()
+        title = str(v.title or "").strip()
+        if not video_id or not title:
+            continue
+        videos.append(
+            {
+                "video_id": video_id,
+                "title": title,
+                "channel_name": (v.channel_name or "").strip(),
+                "duration": (v.duration or "").strip(),
+            }
+        )
+
+    if not videos:
+        return JSONResponse(status_code=400, content={"error": "invalid_input", "message": "videos must contain video_id and title"})
+
+    items = await _run_search_result_batch_verdict(search_query, videos)
+    stage_ms = int((time.perf_counter() - stage_start) * 1000)
+
+    normalized = [
+        SearchResultVerdictItem(
+            video_id=str(item.get("video_id") or ""),
+            verdict=_normalize_search_verdict(item.get("verdict")),
+            reason=str(item.get("reason") or "Metadata relevance estimate.").strip(),
+            confidence=float(item.get("confidence", 0.5)),
+        )
+        for item in items
+        if str(item.get("video_id") or "").strip()
+    ]
+
+    return SearchResultVerdictResponse(items=normalized, stage_ms=stage_ms)
 
 
 @router.post("/deep-analysis", response_model=SmartWatchDeepResult)

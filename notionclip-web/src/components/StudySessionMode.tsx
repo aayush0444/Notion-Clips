@@ -520,7 +520,7 @@ export function StudySessionMode() {
   }
 
   return (
-    <div className="surface-premium rounded-2xl p-6 space-y-6">
+    <div className="surface-premium rounded-2xl p-4 space-y-4 sm:p-5">
       <div className="space-y-2">
         <label className="text-xs text-slate-500 uppercase tracking-wider">
           What do you want to understand deeply?
@@ -529,7 +529,7 @@ export function StudySessionMode() {
           value={learningGoal}
           onChange={(e) => setLearningGoal(e.target.value)}
           placeholder="e.g. I want to deeply understand how transformer attention actually works"
-          className="w-full min-h-[120px] bg-white/80 border border-[#ddd4f6] rounded-lg px-3 py-2 text-sm text-slate-800"
+          className="w-full min-h-[104px] bg-white/80 border border-[#ddd4f6] rounded-lg px-3 py-2 text-sm text-slate-800"
         />
       </div>
 
@@ -559,7 +559,7 @@ export function StudySessionMode() {
         </div>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-2.5">
         <div className="text-xs text-slate-500 uppercase tracking-wider">Add your sources (2–4)</div>
         {sources.map((source) => (
           <div key={source.id} className="flex flex-wrap items-center gap-2">

@@ -70,10 +70,10 @@ export function ContentSourceSelector() {
   }
 
   return (
-    <div className="space-y-3">
-      <label className="block text-xs app-text-muted uppercase tracking-wider">Content source</label>
+    <div className="min-w-0 space-y-4">
+      <label className="block text-sm app-text-muted uppercase tracking-[0.12em]">Content source</label>
 
-      <div className="inline-flex rounded-lg border border-border bg-card/80 p-1">
+      <div className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-card/80 p-1.5 sm:grid-cols-4">
         {[
           { key: "youtube", label: "YouTube" },
           { key: "pdf", label: "PDF Upload" },
@@ -87,7 +87,7 @@ export function ContentSourceSelector() {
               setSourceType(tab.key as "youtube" | "pdf" | "article" | "study_session")
               setError("")
             }}
-            className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
+            className={`w-full px-2.5 py-2.5 text-center text-base rounded-md transition-colors ${
               sourceType === tab.key
                 ? "bg-[#7A5BB5] text-white"
                 : "text-foreground/70 hover:bg-[#F0EBF8]"
@@ -101,22 +101,22 @@ export function ContentSourceSelector() {
       {sourceType === "study_session" && <StudySessionMode />}
 
       {sourceType === "youtube" && (
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           <div className="tech-gradient-ring">
             <input
               type="text"
               value={url}
               onChange={(e) => handleYoutubeChange(e.target.value)}
               placeholder="https://youtube.com/watch?v=..."
-              className="bg-card px-3 py-3 text-sm text-foreground placeholder:text-muted"
+              className="bg-card px-4 py-4 text-[1.02rem] text-foreground placeholder:text-muted"
             />
           </div>
-          {videoId && <div className="text-xs text-[#5A8A63]">Video ID: {videoId}</div>}
+          {videoId && <div className="text-base text-[#5A8A63]">Video ID: {videoId}</div>}
         </div>
       )}
 
       {sourceType === "pdf" && (
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           <input
             ref={fileInputRef}
             type="file"
@@ -127,17 +127,17 @@ export function ContentSourceSelector() {
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="w-full border border-dashed border-border-hover rounded-lg px-3 py-5 text-sm text-foreground/75 hover:bg-[#F5F0E8]"
+            className="w-full border border-dashed border-border-hover rounded-lg px-4 py-5 text-[1.02rem] text-foreground/75 hover:bg-[#F5F0E8]"
           >
             Drag & drop PDF here or click to browse (max 10MB)
           </button>
           {pdfFile && (
-            <div className="text-xs text-foreground/75 flex items-center justify-between">
-              <span>{pdfFile.name} · {(pdfFile.size / (1024 * 1024)).toFixed(2)} MB</span>
+            <div className="min-w-0 text-base text-foreground/75 flex items-center justify-between gap-2">
+              <span className="min-w-0 truncate">{pdfFile.name} · {(pdfFile.size / (1024 * 1024)).toFixed(2)} MB</span>
               <button
                 type="button"
                 onClick={() => setPdfFile(null)}
-                className="text-[#A0527A] hover:opacity-80"
+                className="text-base text-[#A0527A] hover:opacity-80"
               >
                 Clear
               </button>
@@ -153,12 +153,12 @@ export function ContentSourceSelector() {
             value={articleUrl}
             onChange={(e) => handleArticleChange(e.target.value)}
             placeholder="Paste any article, blog post, or documentation URL"
-            className="bg-card px-3 py-3 text-sm text-foreground placeholder:text-muted"
+            className="bg-card px-4 py-4 text-[1.02rem] text-foreground placeholder:text-muted"
           />
         </div>
       )}
 
-      {error && sourceType !== "study_session" && <div className="text-xs text-[#A0527A]">{error}</div>}
+      {error && sourceType !== "study_session" && <div className="text-base text-[#A0527A]">{error}</div>}
 
       {sourceType !== "study_session" && (
         <QuestionsInput questions={questions} onChange={setQuestions} />

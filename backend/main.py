@@ -9,6 +9,7 @@ import os
 import time
 import hashlib
 import json
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 import requests
 
@@ -31,7 +32,7 @@ from backend.supabase_client import (
 )
 from gemini import answer_question, extract_insights as generate_insights, get_pre_watch_verdict
 from models import ActionItem, ActionItemList, PreWatchVerdict, StudyNotes, VideoInsights, WorkBrief, SynthesisAnalysis
-from push_to_notion import push_study_notes, push_work_brief, push_youtube
+from push_to_notion import push_study_notes, push_timestamp_notes, push_work_brief, push_youtube
 from youtube_mode import extract_video_id, get_youtube_transcript
 
 load_dotenv()
@@ -46,6 +47,10 @@ class TranscriptRequest(BaseModel):
     """Request payload for /transcript endpoint."""
 
     video_id: str = Field(..., description="YouTube video ID or URL")
+    allow_supadata: bool = Field(
+        True,
+        description="When false, transcript fetching will avoid Supadata fallback and use scraping only.",
+    )
 
 
 class TranscriptResponse(BaseModel):
@@ -239,6 +244,68 @@ class PushResponse(BaseModel):
 
     status: str
     page_id: Optional[str] = None
+    page_url: Optional[str] = None
+    row_page_id: Optional[str] = None
+    database_id: Optional[str] = None
+
+
+class TimestampNotePayload(BaseModel):
+    label: str
+    seconds: int
+    note: str
+    title: Optional[str] = None
+
+
+class TimestampNotionRequest(BaseModel):
+    mode: ModeLiteral = "study"
+    source_url: str
+    notes: List[TimestampNotePayload] = Field(default_factory=list)
+    ai_summary: Optional[str] = None
+    video_title: Optional[str] = None
+    creator_name: Optional[str] = None
+    notion_token: Optional[str] = None
+    notion_page_id: Optional[str] = None
+    session_id: Optional[str] = None
+
+
+class TimestampNotionResponse(BaseModel):
+    status: str
+    page_id: str
+    page_url: str
+
+
+class CaptureMomentRequest(BaseModel):
+    session_id: str
+    video_url: str
+    video_title: Optional[str] = None
+    creator_name: Optional[str] = None
+    seconds: int
+    note: Optional[str] = None
+    intent: Optional[str] = None
+    mode: ModeLiteral = "study"
+
+
+class CaptureMomentItem(BaseModel):
+    label: str
+    seconds: int
+    note: str
+    created_at: str
+
+
+class CaptureMomentResponse(BaseModel):
+    status: str
+    total_moments: int
+    moment: CaptureMomentItem
+
+
+class CaptureMomentsResponse(BaseModel):
+    status: str
+    video_url: str
+    video_title: Optional[str] = None
+    creator_name: Optional[str] = None
+    intent: Optional[str] = None
+    mode: ModeLiteral = "study"
+    moments: List[CaptureMomentItem] = Field(default_factory=list)
 
 
 class SynthesisRequest(BaseModel):
@@ -277,6 +344,10 @@ app.include_router(notion_oauth_router)
 app.include_router(smart_watch_router)
 app.include_router(study_session_router)
 PROMPT_VERSION = "v1"
+
+# MVP in-memory capture store for extension in-player moments.
+# Key: "session_id::video_id" -> payload with metadata and captured moments.
+CAPTURE_STORE: Dict[str, Dict[str, Any]] = {}
 
 
 @app.get("/health")
@@ -320,7 +391,10 @@ async def fetch_transcript(payload: TranscriptRequest) -> TranscriptResponse:
             )
 
     try:
-        transcript, duration = get_youtube_transcript(video_id)
+        transcript, duration = get_youtube_transcript(
+            video_id,
+            allow_supadata=payload.allow_supadata,
+        )
     except Exception as exc:  # pragma: no cover - FastAPI handles logging
         logger.exception("Transcript fetch failed for video_id=%s", video_id)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -497,6 +571,27 @@ def _resolve_notion_credentials(
     """Resolve Notion credentials from direct payload or Supabase session."""
     resolved_token = token
     resolved_page_id = page_id
+    session: Optional[Dict[str, Any]] = None
+
+    def _page_is_active(target_page_id: Optional[str], target_token: Optional[str]) -> bool:
+        if not target_page_id or not target_token:
+            return False
+        try:
+            resp = requests.get(
+                f"https://api.notion.com/v1/pages/{str(target_page_id).replace('-', '')}",
+                headers={
+                    "Authorization": f"Bearer {target_token}",
+                    "Notion-Version": "2022-06-28",
+                    "Content-Type": "application/json",
+                },
+                timeout=8,
+            )
+            if resp.status_code != 200:
+                return False
+            payload = resp.json()
+            return not bool(payload.get("archived") or payload.get("in_trash"))
+        except Exception:
+            return False
 
     if session_id:
         session = get_session(session_id)
@@ -504,15 +599,28 @@ def _resolve_notion_credentials(
             resolved_token = resolved_token or session.get("notion_token")
 
             if not resolved_page_id:
-                if mode == "study":
-                    resolved_page_id = session.get("study_page_id")
-                elif mode == "work":
-                    resolved_page_id = session.get("work_page_id")
-                elif mode == "quick":
-                    resolved_page_id = session.get("quick_page_id")
-
-            if not resolved_page_id:
                 resolved_page_id = session.get("notion_page_id")
+
+                # Legacy fallback only if unified root is missing.
+                if not resolved_page_id:
+                    if mode == "study":
+                        resolved_page_id = session.get("study_page_id")
+                    elif mode == "work":
+                        resolved_page_id = session.get("work_page_id")
+                    elif mode == "quick":
+                        resolved_page_id = session.get("quick_page_id")
+
+            if resolved_page_id and resolved_token and not _page_is_active(resolved_page_id, resolved_token):
+                logger.warning("Resolved Notion page is archived/inaccessible. Trying fallbacks.")
+                fallback_candidates = [
+                    session.get("notion_page_id") if session else None,
+                    os.getenv("NOTION_PAGE_ID"),
+                ]
+                resolved_page_id = None
+                for candidate in fallback_candidates:
+                    if candidate and _page_is_active(candidate, resolved_token):
+                        resolved_page_id = candidate
+                        break
 
     if not resolved_page_id:
         resolved_page_id = os.getenv("NOTION_PAGE_ID")
@@ -535,6 +643,25 @@ def _build_tasks(payload: Optional[Dict[str, Any]]) -> Optional[ActionItemList]:
     except Exception:
         logger.warning("Invalid tasks payload supplied; ignoring.")
         return None
+
+
+def _fetch_youtube_metadata(url: str) -> Dict[str, str]:
+    if not url or "youtu" not in url.lower():
+        return {}
+    try:
+        res = requests.get(
+            "https://www.youtube.com/oembed",
+            params={"url": url, "format": "json"},
+            timeout=8,
+        )
+        if res.status_code != 200:
+            return {}
+        payload = res.json()
+        title = str(payload.get("title") or "").strip()
+        creator = str(payload.get("author_name") or "").strip()
+        return {"title": title, "creator": creator}
+    except Exception:
+        return {}
 
 
 @app.post("/push", response_model=PushResponse)
@@ -588,7 +715,209 @@ async def push_to_notion_endpoint(payload: PushRequest) -> PushResponse:
         logger.exception("Failed to push insights to Notion")
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    return PushResponse(status="ok", page_id=page_id)
+    database_id = _resolve_parent_database_id(page_id, creds["token"]) if page_id else None
+    return PushResponse(
+        status="ok",
+        page_id=page_id,
+        page_url=_notion_page_url(page_id),
+        row_page_id=page_id,
+        database_id=database_id,
+    )
+
+
+def _notion_page_url(page_id: str) -> str:
+    clean = (page_id or "").replace("-", "")
+    return f"https://www.notion.so/{clean}" if clean else "https://www.notion.so"
+
+
+def _resolve_parent_database_id(page_id: str, notion_token: str) -> Optional[str]:
+    try:
+        clean_id = (page_id or "").replace("-", "")
+        if not clean_id:
+            return None
+        resp = requests.get(
+            f"https://api.notion.com/v1/pages/{clean_id}",
+            headers={
+                "Authorization": f"Bearer {notion_token}",
+                "Notion-Version": "2022-06-28",
+            },
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return None
+        parent = (resp.json() or {}).get("parent") or {}
+        if parent.get("type") == "database_id":
+            return parent.get("database_id")
+        return None
+    except Exception:
+        return None
+
+
+def _seconds_to_label(total_seconds: int) -> str:
+    safe = max(0, int(total_seconds))
+    hours = safe // 3600
+    minutes = (safe % 3600) // 60
+    seconds = safe % 60
+    if hours > 0:
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes:02d}:{seconds:02d}"
+
+
+def _capture_store_key(session_id: str, video_url: str) -> str:
+    video_id = extract_video_id(video_url) or video_url.strip()
+    return f"{session_id.strip()}::{video_id}"
+
+
+def _get_or_init_capture_bucket(
+    session_id: str,
+    video_url: str,
+    video_title: Optional[str],
+    creator_name: Optional[str],
+    intent: Optional[str],
+    mode: ModeLiteral,
+) -> Dict[str, Any]:
+    key = _capture_store_key(session_id, video_url)
+    bucket = CAPTURE_STORE.get(key)
+    if bucket:
+        if video_title and not bucket.get("video_title"):
+            bucket["video_title"] = video_title
+        if creator_name and not bucket.get("creator_name"):
+            bucket["creator_name"] = creator_name
+        if intent:
+            bucket["intent"] = intent
+        if mode:
+            bucket["mode"] = mode
+        return bucket
+
+    bucket = {
+        "session_id": session_id,
+        "video_url": video_url,
+        "video_title": video_title or "",
+        "creator_name": creator_name or "",
+        "intent": intent or "",
+        "mode": mode,
+        "moments": [],
+    }
+    CAPTURE_STORE[key] = bucket
+    return bucket
+
+
+@app.post("/capture/moment", response_model=CaptureMomentResponse)
+async def capture_moment(payload: CaptureMomentRequest) -> CaptureMomentResponse:
+    """Store one in-player captured timestamp moment for the current session/video."""
+    session_id = payload.session_id.strip()
+    video_url = payload.video_url.strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+    if not video_url:
+        raise HTTPException(status_code=400, detail="video_url is required")
+
+    safe_seconds = max(0, int(payload.seconds))
+    note = (payload.note or "Captured in player").strip() or "Captured in player"
+
+    bucket = _get_or_init_capture_bucket(
+        session_id=session_id,
+        video_url=video_url,
+        video_title=payload.video_title,
+        creator_name=payload.creator_name,
+        intent=payload.intent,
+        mode=payload.mode,
+    )
+
+    for existing in bucket["moments"]:
+        if abs(int(existing.get("seconds", 0)) - safe_seconds) <= 2:
+            existing["note"] = note
+            existing["label"] = _seconds_to_label(safe_seconds)
+            existing["created_at"] = datetime.now(timezone.utc).isoformat()
+            moment = CaptureMomentItem(**existing)
+            return CaptureMomentResponse(status="ok", total_moments=len(bucket["moments"]), moment=moment)
+
+    created = {
+        "label": _seconds_to_label(safe_seconds),
+        "seconds": safe_seconds,
+        "note": note,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    bucket["moments"].append(created)
+    bucket["moments"].sort(key=lambda item: int(item.get("seconds", 0)))
+
+    return CaptureMomentResponse(
+        status="ok",
+        total_moments=len(bucket["moments"]),
+        moment=CaptureMomentItem(**created),
+    )
+
+
+@app.get("/capture/moments", response_model=CaptureMomentsResponse)
+async def list_captured_moments(session_id: str, video_url: str) -> CaptureMomentsResponse:
+    """Return all captured moments for a given session + video."""
+    session_clean = session_id.strip()
+    source_clean = video_url.strip()
+    if not session_clean:
+        raise HTTPException(status_code=400, detail="session_id is required")
+    if not source_clean:
+        raise HTTPException(status_code=400, detail="video_url is required")
+
+    key = _capture_store_key(session_clean, source_clean)
+    bucket = CAPTURE_STORE.get(key)
+
+    if not bucket:
+        return CaptureMomentsResponse(status="ok", video_url=source_clean, moments=[])
+
+    moments = [CaptureMomentItem(**item) for item in bucket.get("moments", [])]
+    return CaptureMomentsResponse(
+        status="ok",
+        video_url=bucket.get("video_url") or source_clean,
+        video_title=bucket.get("video_title") or None,
+        creator_name=bucket.get("creator_name") or None,
+        intent=bucket.get("intent") or None,
+        mode=bucket.get("mode") or "study",
+        moments=moments,
+    )
+
+
+@app.post("/notion/timestamp-notes", response_model=TimestampNotionResponse)
+async def push_timestamp_notes_endpoint(payload: TimestampNotionRequest) -> TimestampNotionResponse:
+    """Create a dedicated Notion page for timestamp notes."""
+    if not payload.source_url.strip():
+        raise HTTPException(status_code=400, detail="source_url is required")
+
+    creds = _resolve_notion_credentials(
+        payload.notion_token, payload.notion_page_id, payload.session_id, payload.mode
+    )
+
+    if not creds["token"] or not creds["page_id"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Notion credentials are required via notion_token/notion_page_id or session_id.",
+        )
+
+    metadata = _fetch_youtube_metadata(payload.source_url)
+    resolved_title = payload.video_title or metadata.get("title") or ""
+    resolved_creator = payload.creator_name or metadata.get("creator") or ""
+
+    notes_payload = [item.dict() for item in payload.notes]
+
+    try:
+        page_id = push_timestamp_notes(
+            mode=payload.mode,
+            source_url=payload.source_url,
+            timestamp_notes=notes_payload,
+            ai_summary=payload.ai_summary,
+            video_title=resolved_title,
+            creator_name=resolved_creator,
+            notion_token=creds["token"],
+            notion_page_id=creds["page_id"],
+        )
+    except Exception as exc:  # pragma: no cover
+        logger.exception("Failed to push timestamp notes to Notion")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return TimestampNotionResponse(
+        status="ok",
+        page_id=page_id,
+        page_url=_notion_page_url(page_id),
+    )
 
 
 @app.post("/qa", response_model=QAResponse)
@@ -712,3 +1041,5 @@ async def notion_edit(payload: NotionEditRequest):
     if res.status_code != 200:
         raise HTTPException(status_code=502, detail=f"Notion edit failed: {res.text}")
     return {"status": "ok"}
+
+

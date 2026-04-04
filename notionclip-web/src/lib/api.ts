@@ -272,6 +272,28 @@ export async function pushStudySessionToNotion(
   return res.json()
 }
 
+export async function pushTimestampNotesToNotion(payload: {
+  mode: Mode
+  source_url: string
+  session_id?: string | null
+  notion_page_id?: string | null
+  ai_summary?: string | null
+  video_title?: string | null
+  creator_name?: string | null
+  notes: Array<{ label: string; seconds: number; note: string; title?: string }>
+}): Promise<{ status: string; page_id: string; page_url: string }> {
+  const res = await fetch(`${API_BASE}/notion/timestamp-notes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  if (!res.ok) {
+    const detail = await parseError(res)
+    throw new Error(`Timestamp notes push failed (${res.status}): ${detail}`)
+  }
+  return res.json()
+}
+
 export const api = {
   async getTranscript(videoId: string): Promise<TranscriptResponse> {
     const res = await fetch(`${API_BASE}/transcript`, {
@@ -367,15 +389,28 @@ export const api = {
   smartWatchAnalytics,
   smartWatchDashboard,
 
-  async pushToNotion(mode: string, insights: any, videoUrl: string, sessionId: string): Promise<{ status: string; page_id: string | null }> {
+  async pushToNotion(
+    mode: string,
+    insights: any,
+    videoUrl: string,
+    sessionId: string
+  ): Promise<{ status: string; page_id: string | null; row_page_id: string | null; database_id: string | null }> {
     const res = await fetch(`${API_BASE}/push`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mode, insights, video_url: videoUrl, session_id: sessionId })
     })
-    if (!res.ok) throw new Error("Failed to push to Notion")
+    if (!res.ok) {
+      const detail = await parseError(res)
+      throw new Error(`Push to Notion failed (${res.status}): ${detail}`)
+    }
     const data = await res.json()
-    return { status: data.status, page_id: data.page_id || null }
+    return {
+      status: data.status,
+      page_id: data.page_id || null,
+      row_page_id: data.row_page_id || data.page_id || null,
+      database_id: data.database_id || null,
+    }
   },
 
   async askChat(
@@ -434,6 +469,19 @@ export const api = {
     })
     const data = await res.json()
     return data
+  },
+
+  async pushTimestampNotesToNotion(payload: {
+    mode: Mode
+    source_url: string
+    session_id?: string | null
+    notion_page_id?: string | null
+    ai_summary?: string | null
+    video_title?: string | null
+    creator_name?: string | null
+    notes: Array<{ label: string; seconds: number; note: string; title?: string }>
+  }): Promise<{ status: string; page_id: string; page_url: string }> {
+    return pushTimestampNotesToNotion(payload)
   },
 
   async synthesiseSessions(

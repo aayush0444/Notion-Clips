@@ -1,10 +1,31 @@
 "use client"
 import { QuickInsights } from '@/lib/types'
 import ExportButtons from '@/components/ExportButtons'
+import { TimestampMomentsPanel } from './TimestampMomentsPanel'
 
-export function QuickModeView({ data, sourceUrl }: { data: QuickInsights; sourceUrl?: string }) {
+export function QuickModeView({
+  data,
+  sourceUrl,
+  sessionId,
+  notionPageId,
+}: {
+  data: QuickInsights
+  sourceUrl?: string
+  sessionId?: string | null
+  notionPageId?: string | null
+}) {
   return (
     <div className="space-y-6">
+      <TimestampMomentsPanel
+        data={data}
+        sourceUrl={sourceUrl}
+        mode="quick"
+        sessionId={sessionId}
+        notionPageId={notionPageId}
+        aiSummary={data.summary}
+        videoTitle={data.title}
+      />
+
       <div className="bg-[#F1E8F6] border border-[#D9C2E8] rounded-lg p-5">
         <div className="text-xs text-[#7A5BB5] mb-2 uppercase tracking-wider">Quick Brief</div>
         <div className="text-foreground/90 text-sm leading-relaxed">
