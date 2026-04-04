@@ -237,6 +237,10 @@ class PushRequest(BaseModel):
         default=None,
         description="Optional ActionItemList payload for quick mode task database creation.",
     )
+    timestamp_notes: Optional[List[PushTimestampNotePayload]] = Field(
+        default=None,
+        description="Optional timestamp notes to persist into the same Notion row workspace.",
+    )
 
 
 class PushResponse(BaseModel):
@@ -247,6 +251,13 @@ class PushResponse(BaseModel):
     page_url: Optional[str] = None
     row_page_id: Optional[str] = None
     database_id: Optional[str] = None
+
+
+class PushTimestampNotePayload(BaseModel):
+    label: str
+    seconds: int
+    note: str
+    title: Optional[str] = None
 
 
 class TimestampNotePayload(BaseModel):
@@ -714,6 +725,36 @@ async def push_to_notion_endpoint(payload: PushRequest) -> PushResponse:
     except Exception as exc:  # pragma: no cover
         logger.exception("Failed to push insights to Notion")
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    
+    if payload.timestamp_notes:
+        try:
+            summary_hint = ""
+            if payload.mode == "study":
+                summary_hint = str(payload.insights.get("core_concept") or "")
+            elif payload.mode == "work":
+                summary_hint = str(
+                    payload.insights.get("one_liner")
+                    or payload.insights.get("recommendation")
+                    or ""
+                )
+            else:
+                summary_hint = str(payload.insights.get("summary") or payload.insights.get("title") or "")
+    
+            push_timestamp_notes(
+                mode=payload.mode,
+                source_url=payload.video_url or "",
+                timestamp_notes=[item.dict() for item in payload.timestamp_notes],
+                ai_summary=summary_hint,
+                video_title=str(payload.insights.get("title") or "") or None,
+                creator_name=str(
+                    payload.insights.get("creator") or payload.insights.get("creator_name") or ""
+                )
+                or None,
+                notion_token=creds["token"],
+                notion_page_id=page_id,
+            )
+        except Exception as exc:
+            logger.warning("Timestamp note sync skipped for /push request: %s", exc)
 
     database_id = _resolve_parent_database_id(page_id, creds["token"]) if page_id else None
     return PushResponse(

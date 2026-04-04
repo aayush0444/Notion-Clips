@@ -401,12 +401,19 @@ export const api = {
     mode: string,
     insights: any,
     videoUrl: string,
-    sessionId: string
+    sessionId: string,
+    timestampNotes?: Array<{ label: string; seconds: number; note: string; title?: string }>
   ): Promise<{ status: string; page_id: string | null; row_page_id: string | null; database_id: string | null }> {
     const res = await fetch(`${API_BASE}/push`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode, insights, video_url: videoUrl, session_id: sessionId })
+      body: JSON.stringify({
+        mode,
+        insights,
+        video_url: videoUrl,
+        session_id: sessionId,
+        timestamp_notes: timestampNotes || [],
+      })
     })
     if (!res.ok) {
       const detail = await parseError(res)

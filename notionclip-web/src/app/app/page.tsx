@@ -358,28 +358,10 @@ export default function AppPage() {
     setPushFeedback(null)
     setIsPushingNotion(true)
     try {
-      const response = await api.pushToNotion(mode, results, url || "", sessionId)
+      const timestampNotes = buildTimestampNotes(results)
+      const response = await api.pushToNotion(mode, results, url || "", sessionId, timestampNotes)
       const rowPageId = response.row_page_id || response.page_id
       if (rowPageId) setNotionPageId(rowPageId)
-
-      const timestampNotes = buildTimestampNotes(results)
-      const aiSummary =
-        mode === "study"
-          ? ((results as Record<string, unknown>).core_concept as string | undefined) || ""
-          : mode === "work"
-          ? ((results as Record<string, unknown>).one_liner as string | undefined) || ((results as Record<string, unknown>).recommendation as string | undefined) || ""
-          : ((results as Record<string, unknown>).summary as string | undefined) || ((results as Record<string, unknown>).title as string | undefined) || ""
-
-      await api.pushTimestampNotesToNotion({
-        mode,
-        source_url: url || "",
-        session_id: sessionId,
-        notion_page_id: rowPageId || notionPageId,
-        ai_summary: aiSummary || null,
-        video_title: ((results as Record<string, unknown>).title as string | undefined) || null,
-        creator_name: ((results as Record<string, unknown>).creator as string | undefined) || ((results as Record<string, unknown>).creator_name as string | undefined) || null,
-        notes: timestampNotes,
-      })
 
       setPushFeedback({
         type: "success",
