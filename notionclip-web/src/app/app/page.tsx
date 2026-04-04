@@ -23,6 +23,129 @@ const loadingMessagesByStage = {
   finalizing: "Polishing the final output..."
 } as const
 
+type TimestampNotePayload = {
+  label: string
+  seconds: number
+  title: string
+  note: string
+}
+
+function parseTimestampToSeconds(value: string): number | null {
+  const parts = value.split(":").map((part) => Number(part))
+  if (parts.some((part) => Number.isNaN(part))) return null
+  if (parts.length === 2) {
+    const [minutes, seconds] = parts
+    return minutes * 60 + seconds
+  }
+  if (parts.length === 3) {
+    const [hours, minutes, seconds] = parts
+    return hours * 3600 + minutes * 60 + seconds
+  }
+  return null
+}
+
+function secondsToLabel(totalSeconds: number): string {
+  const safe = Math.max(0, Math.floor(totalSeconds))
+  const hours = Math.floor(safe / 3600)
+  const minutes = Math.floor((safe % 3600) / 60)
+  const seconds = safe % 60
+  if (hours > 0) {
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+  }
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+}
+
+function buildTimestampNotes(data: unknown, limit: number = 8): TimestampNotePayload[] {
+  const stack: unknown[] = [data]
+  const moments: TimestampNotePayload[] = []
+  const seen = new Set<string>()
+  const timestampRegex = /(\b\d{1,2}:\d{2}(?::\d{2})?\b)/g
+
+  while (stack.length > 0 && moments.length < limit) {
+    const node = stack.pop()
+    if (!node) continue
+
+    if (Array.isArray(node)) {
+      for (const item of node) stack.push(item)
+      continue
+    }
+
+    if (typeof node === "object") {
+      const record = node as Record<string, unknown>
+      const display = typeof record.timestamp_display === "string" ? record.timestamp_display : null
+      const rawTimestamp =
+        typeof record.timestamp === "string"
+          ? record.timestamp
+          : typeof record.time === "string"
+          ? record.time
+          : null
+      const rawSeconds =
+        typeof record.timestamp_seconds === "number"
+          ? record.timestamp_seconds
+          : typeof record.seconds === "number"
+          ? record.seconds
+          : null
+      const resolvedSeconds = rawSeconds ?? (rawTimestamp ? parseTimestampToSeconds(rawTimestamp) : null)
+      if (resolvedSeconds !== null) {
+        const label = display || rawTimestamp || secondsToLabel(resolvedSeconds)
+        const explicitTitle =
+          typeof record.title === "string"
+            ? record.title
+            : typeof record.topic === "string"
+            ? record.topic
+            : typeof record.concept === "string"
+            ? record.concept
+            : typeof record.key_point === "string"
+            ? record.key_point
+            : typeof record.point === "string"
+            ? record.point
+            : null
+        const explicitNote =
+          typeof record.note === "string"
+            ? record.note
+            : typeof record.description === "string"
+            ? record.description
+            : typeof record.relevance === "string"
+            ? record.relevance
+            : typeof record.quote === "string"
+            ? record.quote
+            : null
+        const title = (explicitTitle || `Moment at ${label}`).trim()
+        const note = (explicitNote || title).trim()
+        const key = `${resolvedSeconds}-${title}`
+        if (!seen.has(key)) {
+          seen.add(key)
+          moments.push({ label, seconds: resolvedSeconds, title, note })
+          if (moments.length >= limit) break
+        }
+      }
+      for (const value of Object.values(record)) stack.push(value)
+      continue
+    }
+
+    if (typeof node === "string") {
+      timestampRegex.lastIndex = 0
+      let match: RegExpExecArray | null
+      while ((match = timestampRegex.exec(node)) !== null) {
+        const label = match[1]
+        const seconds = parseTimestampToSeconds(label)
+        if (seconds === null) continue
+        const cleaned = node.replace(label, "").replace(/^[\s\-:.,]+/, "").trim()
+        const title = cleaned.length > 0 ? cleaned.split(/\s+/).slice(0, 10).join(" ") : `Moment at ${label}`
+        const note = cleaned.length > 0 ? cleaned : `Key moment at ${label}`
+        const key = `${seconds}-${title}`
+        if (!seen.has(key)) {
+          seen.add(key)
+          moments.push({ label, seconds, title, note })
+          if (moments.length >= limit) break
+        }
+      }
+    }
+  }
+
+  return moments.sort((a, b) => a.seconds - b.seconds)
+}
+
 function LoadingPanel({ stage }: { stage: keyof typeof loadingMessagesByStage }) {
   const currentMessage = loadingMessagesByStage[stage]
   const widths = ["100%", "85%", "70%", "90%"]
@@ -239,9 +362,28 @@ export default function AppPage() {
       const rowPageId = response.row_page_id || response.page_id
       if (rowPageId) setNotionPageId(rowPageId)
 
+      const timestampNotes = buildTimestampNotes(results)
+      const aiSummary =
+        mode === "study"
+          ? ((results as Record<string, unknown>).core_concept as string | undefined) || ""
+          : mode === "work"
+          ? ((results as Record<string, unknown>).one_liner as string | undefined) || ((results as Record<string, unknown>).recommendation as string | undefined) || ""
+          : ((results as Record<string, unknown>).summary as string | undefined) || ((results as Record<string, unknown>).title as string | undefined) || ""
+
+      await api.pushTimestampNotesToNotion({
+        mode,
+        source_url: url || "",
+        session_id: sessionId,
+        notion_page_id: rowPageId || notionPageId,
+        ai_summary: aiSummary || null,
+        video_title: ((results as Record<string, unknown>).title as string | undefined) || null,
+        creator_name: ((results as Record<string, unknown>).creator as string | undefined) || ((results as Record<string, unknown>).creator_name as string | undefined) || null,
+        notes: timestampNotes,
+      })
+
       setPushFeedback({
         type: "success",
-        message: "✓ AI Notes saved to your NotionClip library."
+        message: "✓ AI Notes and Timestamp Notes saved to your NotionClip library."
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : "Push to Notion failed"
@@ -407,7 +549,7 @@ export default function AppPage() {
                     disabled={isPushingNotion || !sessionId}
                     className="rounded-lg border border-[#D6C7EF] bg-[#F7F1FF] px-4 py-2.5 text-sm font-semibold text-[#5E4496] transition hover:border-[#BFA8E4] hover:bg-[#EFE3FF] disabled:cursor-not-allowed disabled:opacity-60 sm:text-base"
                   >
-                    {isPushingNotion ? "Pushing to Notion..." : "Push AI Notes to Notion"}
+                    {isPushingNotion ? "Saving notes to Notion..." : "Save AI + Timestamp Notes to Notion"}
                   </button>
                 )}
               </div>
@@ -521,13 +663,13 @@ export default function AppPage() {
                   className="space-y-8 p-3 sm:p-4"
                 >
                   {mode === "study" && (
-                    <StudyModeView data={results} sourceUrl={url} sessionId={sessionId} notionPageId={notionPageId} />
+                    <StudyModeView data={results} sourceUrl={url} />
                   )}
                   {mode === "work" && (
-                    <WorkModeView data={results} sourceUrl={url} sessionId={sessionId} notionPageId={notionPageId} />
+                    <WorkModeView data={results} sourceUrl={url} />
                   )}
                   {mode === "quick" && (
-                    <QuickModeView data={results} sourceUrl={url} sessionId={sessionId} notionPageId={notionPageId} />
+                    <QuickModeView data={results} sourceUrl={url} />
                   )}
                   <QnASection />
                 </motion.div>

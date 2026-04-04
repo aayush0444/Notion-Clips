@@ -282,11 +282,19 @@ export async function pushTimestampNotesToNotion(payload: {
   creator_name?: string | null
   notes: Array<{ label: string; seconds: number; note: string; title?: string }>
 }): Promise<{ status: string; page_id: string; page_url: string }> {
-  const res = await fetch(`${API_BASE}/notion/timestamp-notes`, {
+  let res = await fetch(`${API_BASE}/notion/timestamp-notes`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   })
+  if (res.status === 404) {
+    // Backward-compatible fallback for deployments that expose legacy route name.
+    res = await fetch(`${API_BASE}/timestamp-notes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+  }
   if (!res.ok) {
     const detail = await parseError(res)
     throw new Error(`Timestamp notes push failed (${res.status}): ${detail}`)

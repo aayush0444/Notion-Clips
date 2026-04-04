@@ -1,8 +1,6 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { api } from "@/lib/api"
-import { Mode } from "@/lib/types"
 
 type TimestampMoment = {
   label: string
@@ -177,64 +175,13 @@ function collectMomentsFromObject(data: unknown, limit: number): TimestampMoment
 export function TimestampMomentsPanel({
   data,
   sourceUrl,
-  mode = "study",
-  sessionId,
-  notionPageId,
-  aiSummary,
-  videoTitle,
-  creatorName,
 }: {
   data: unknown
   sourceUrl?: string
-  mode?: Mode
-  sessionId?: string | null
-  notionPageId?: string | null
-  aiSummary?: string
-  videoTitle?: string
-  creatorName?: string
 }) {
   const isYoutube = isYoutubeUrl(sourceUrl)
   const moments = useMemo(() => collectMomentsFromObject(data, 8), [data])
   const [isOpen, setIsOpen] = useState(true)
-  const [isPushingToNotion, setIsPushingToNotion] = useState(false)
-  const [notionMessage, setNotionMessage] = useState("")
-
-  const pushTimestampNotesToNotion = async () => {
-    setNotionMessage("")
-    if (!sourceUrl) {
-      setNotionMessage("Source URL is required to create a Notion timestamp page.")
-      return
-    }
-
-    const mergedNotes = moments
-      .map((moment) => ({
-        label: moment.label,
-        seconds: moment.seconds,
-        title: moment.title,
-        note: moment.note,
-      }))
-      .sort((a, b) => a.seconds - b.seconds)
-
-    setIsPushingToNotion(true)
-    try {
-      await api.pushTimestampNotesToNotion({
-        mode,
-        source_url: sourceUrl,
-        session_id: sessionId || null,
-        notion_page_id: notionPageId || null,
-        ai_summary: aiSummary || null,
-        video_title: videoTitle || null,
-        creator_name: creatorName || null,
-        notes: mergedNotes,
-      })
-      setNotionMessage("✓ Timestamp notes saved to your NotionClip library.")
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to push timestamp notes to Notion."
-      setNotionMessage(message)
-    } finally {
-      setIsPushingToNotion(false)
-    }
-  }
 
   if (!isYoutube && moments.length === 0) return null
 
@@ -245,14 +192,6 @@ export function TimestampMomentsPanel({
           <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#6B55A4]">
             Important Timestamps
           </div>
-          <button
-            type="button"
-            onClick={pushTimestampNotesToNotion}
-            disabled={isPushingToNotion || !sourceUrl}
-            className="rounded-md border border-[#BFA9E4] bg-[#EFE6FF] px-3 py-2 text-sm font-semibold text-[#5B3E89] transition-colors hover:bg-[#E7DBFF] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isPushingToNotion ? "Creating Notion page..." : "Take notes in Notion"}
-          </button>
         </div>
 
         <button
@@ -310,8 +249,6 @@ export function TimestampMomentsPanel({
           </div>
         )}
       </div>
-
-      {notionMessage && <div className="mt-3 text-xs text-[#5A4A78]">{notionMessage}</div>}
     </section>
   )
 }

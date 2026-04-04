@@ -6,24 +6,15 @@ import { TimestampMomentsPanel } from './TimestampMomentsPanel'
 export function QuickModeView({
   data,
   sourceUrl,
-  sessionId,
-  notionPageId,
 }: {
   data: QuickInsights
   sourceUrl?: string
-  sessionId?: string | null
-  notionPageId?: string | null
 }) {
   return (
     <div className="space-y-6">
       <TimestampMomentsPanel
         data={data}
         sourceUrl={sourceUrl}
-        mode="quick"
-        sessionId={sessionId}
-        notionPageId={notionPageId}
-        aiSummary={data.summary}
-        videoTitle={data.title}
       />
 
       <div className="bg-[#F1E8F6] border border-[#D9C2E8] rounded-lg p-5">

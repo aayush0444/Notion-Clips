@@ -877,6 +877,7 @@ async def list_captured_moments(session_id: str, video_url: str) -> CaptureMomen
 
 
 @app.post("/notion/timestamp-notes", response_model=TimestampNotionResponse)
+@app.post("/timestamp-notes", response_model=TimestampNotionResponse)
 async def push_timestamp_notes_endpoint(payload: TimestampNotionRequest) -> TimestampNotionResponse:
     """Create a dedicated Notion page for timestamp notes."""
     if not payload.source_url.strip():

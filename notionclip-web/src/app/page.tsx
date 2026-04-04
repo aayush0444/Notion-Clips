@@ -2,13 +2,13 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useCallback, useEffect, useState, type MouseEvent } from "react"
+import { useCallback, useEffect, useState, type MouseEvent as ReactMouseEvent } from "react"
 
 export default function HomePage() {
   const router = useRouter()
   const [isTransitioning, setIsTransitioning] = useState(false)
 
-  const handleAppNavigation = useCallback((event: MouseEvent<HTMLAnchorElement>) => {
+  const handleAppNavigation = useCallback((event: ReactMouseEvent<HTMLAnchorElement>) => {
     if (
       event.button !== 0 ||
       event.metaKey ||
@@ -115,7 +115,7 @@ export default function HomePage() {
       document.querySelectorAll(selector).forEach((element) => {
         const el = element as HTMLElement
         const onMove = (e: Event) => {
-          const evt = e as unknown as MouseEvent
+          const evt = e as globalThis.MouseEvent
           const rect = el.getBoundingClientRect()
           const dx = (evt.clientX - rect.left - rect.width / 2) / (rect.width / 2)
           const dy = (evt.clientY - rect.top - rect.height / 2) / (rect.height / 2)
@@ -143,7 +143,7 @@ export default function HomePage() {
     let onHeroLeave: (() => void) | null = null
     if (heroVisual && mockupWrapper) {
       onHeroMove = (e: Event) => {
-        const evt = e as unknown as MouseEvent
+        const evt = e as globalThis.MouseEvent
         const rect = heroVisual.getBoundingClientRect()
         heroDx = (evt.clientX - rect.left - rect.width / 2) / (rect.width / 2)
         heroDy = (evt.clientY - rect.top - rect.height / 2) / (rect.height / 2)

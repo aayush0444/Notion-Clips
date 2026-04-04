@@ -8,13 +8,9 @@ import { TimestampMomentsPanel } from './TimestampMomentsPanel'
 export function WorkModeView({
   data,
   sourceUrl,
-  sessionId,
-  notionPageId,
 }: {
   data: WorkInsights
   sourceUrl?: string
-  sessionId?: string | null
-  notionPageId?: string | null
 }) {
   const [checkedItems, setCheckedItems] = useState<number[]>([])
   const recommendation = data.recommendation || data.watch_or_skip || "Recommendation unavailable"
@@ -31,11 +27,6 @@ export function WorkModeView({
       <TimestampMomentsPanel
         data={data}
         sourceUrl={sourceUrl}
-        mode="work"
-        sessionId={sessionId}
-        notionPageId={notionPageId}
-        aiSummary={data.one_liner || data.recommendation}
-        videoTitle={data.title}
       />
 
       <div className="flex items-center gap-4">

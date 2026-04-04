@@ -8,13 +8,9 @@ import { TimestampMomentsPanel } from './TimestampMomentsPanel'
 export function StudyModeView({
   data,
   sourceUrl,
-  sessionId,
-  notionPageId,
 }: {
   data: StudyInsights
   sourceUrl?: string
-  sessionId?: string | null
-  notionPageId?: string | null
 }) {
   const [expandedQuestions, setExpandedQuestions] = useState<number[]>([])
   const [videoTitle, setVideoTitle] = useState<string>("")
@@ -72,11 +68,6 @@ export function StudyModeView({
       <TimestampMomentsPanel
         data={data}
         sourceUrl={sourceUrl}
-        mode="study"
-        sessionId={sessionId}
-        notionPageId={notionPageId}
-        aiSummary={data.core_concept}
-        videoTitle={videoTitle || resolvedTitle}
       />
 
       <div className="bg-[#E9F0FB] border border-[#C8D9F2] rounded-lg p-6">
