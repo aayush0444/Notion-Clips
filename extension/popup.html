@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NotionClip</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;1,9..144,300;1,9..144,600&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+
+/* ── Reset & Variables ───────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --cream:       #FAF7F2;
+  --cream-warm:  #F5F0E8;
+  --cream-deep:  #EDE6DA;
+  --lilac-pale:  #F0EBF8;
+  --lilac:       #9B7FD4;
+  --lilac-deep:  #7A5BB5;
+  --lilac-dark:  #3D2466;
+  --ink:         #2C1F3E;
+  --ink-mid:     #5A4A72;
+  --ink-soft:    #8B7AA8;
+  --ink-muted:   #B8AACC;
+  --border:      rgba(155,127,212,0.15);
+  --border-mid:  rgba(155,127,212,0.28);
+  --shadow:      0 4px 24px rgba(61,36,102,0.08);
+  --serif:       'Fraunces', Georgia, serif;
+  --sans:        'Jost', system-ui, sans-serif;
+  --radius:      12px;
+}
+
+body {
+  background: var(--cream);
+  font-family: var(--sans);
+  color: var(--ink);
+  width: 360px;
+  min-height: 180px;
+  max-height: 560px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Subtle paper texture */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+  pointer-events: none; z-index: 0;
+}
+
+/* ── Header ──────────────────────────────────────────────── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 16px 12px;
+  background: rgba(255,255,255,0.96);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  z-index: 1;
+}
+
+.logo {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 18px;
+  font-weight: 300;
+  line-height: 1;
+}
+.logo .notion { color: var(--ink); }
+.logo .clip   { color: var(--lilac-deep); }
+
+.open-app {
+  font-size: 11px;
+  color: var(--lilac-deep);
+  text-decoration: none;
+  font-family: var(--sans);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  transition: opacity 0.15s;
+}
+.open-app:hover { opacity: 0.7; text-decoration: underline; }
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.close-panel-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(122,91,181,0.35);
+  background: #fff;
+  color: var(--lilac-dark);
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.close-panel-btn:hover {
+  background: #efe8fb;
+  color: #2f1d4e;
+}
+
+/* ── Video Strip ─────────────────────────────────────────── */
+#videoStrip {
+  display: none;
+  padding: 9px 16px 10px;
+  background: var(--cream-warm);
+  border-bottom: 1px solid var(--border);
+  position: relative; z-index: 1;
+}
+
+#videoTitle {
+  font-size: 12px;
+  color: var(--ink);
+  line-height: 1.4;
+  font-weight: 400;
+  display: -webkit-box;
+  line-clamp: 2;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+#videoUrl {
+  font-size: 10px;
+  color: var(--ink-soft);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Main Content ────────────────────────────────────────── */
+#mainContent {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── STATE: IDLE ─────────────────────────────────────────── */
+#stateIdle {
+  padding: 28px 20px 24px;
+  text-align: center;
+}
+
+.idle-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--lilac-pale);
+  margin: 0 auto 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-mid);
+}
+
+.idle-icon svg {
+  width: 22px;
+  height: 22px;
+  color: var(--lilac-deep);
+}
+
+.idle-heading {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 19px;
+  font-weight: 300;
+  color: var(--ink);
+  margin-bottom: 6px;
+  line-height: 1.2;
+}
+
+.idle-sub {
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+#btnAnalyse {
+  width: 100%;
+  padding: 12px;
+  border-radius: 100px;
+  border: none;
+  background: var(--lilac-deep);
+  color: white;
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  letter-spacing: 0.01em;
+  box-shadow: 0 6px 24px rgba(122,91,181,0.28);
+  transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
+}
+#btnAnalyse:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+#btnAnalyse:hover {
+  background: var(--lilac-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 32px rgba(61,36,102,0.28);
+}
+#btnAnalyse:active { transform: scale(0.98); }
+
+.idle-note {
+  font-size: 10px;
+  color: var(--ink-muted);
+  margin-top: 10px;
+  letter-spacing: 0.01em;
+}
+
+/* ── STATE: LOADING ──────────────────────────────────────── */
+#stateLoading {
+  padding: 28px 20px 24px;
+  text-align: center;
+}
+
+.progress-bar-wrap {
+  width: 100%;
+  height: 3px;
+  background: var(--lilac-pale);
+  border-radius: 100px;
+  overflow: hidden;
+  margin-bottom: 18px;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  width: 45%;
+  background: linear-gradient(90deg, var(--lilac), var(--lilac-deep));
+  border-radius: 100px;
+  animation: progressSlide 1.6s ease-in-out infinite;
+}
+
+@keyframes progressSlide {
+  0%   { transform: translateX(-120%); }
+  50%  { transform: translateX(100%); }
+  100% { transform: translateX(280%); }
+}
+
+#loadingText {
+  font-size: 13px;
+  color: var(--ink-mid);
+  margin-bottom: 6px;
+  font-weight: 400;
+  transition: opacity 0.3s;
+}
+
+.loading-sub {
+  font-size: 10px;
+  color: var(--ink-muted);
+  line-height: 1.5;
+}
+
+#loadingMeta {
+  margin-top: 9px;
+  display: inline-block;
+  font-size: 10px;
+  color: var(--ink-mid);
+  background: rgba(155,127,212,0.12);
+  border: 1px solid var(--border-mid);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+/* ── STATE: RESULT ───────────────────────────────────────── */
+#stateResult {
+  padding: 14px 16px 18px;
+}
+
+.verdict-badge {
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  animation: fadeSlideIn 0.35s ease forwards;
+}
+
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.verdict-badge.watch {
+  background: linear-gradient(135deg, #D4E8D8, #EAF4EC);
+  color: #3A7A45;
+}
+.verdict-badge.skip {
+  background: linear-gradient(135deg, #F5E6EF, #FDF0F7);
+  color: #A0527A;
+}
+
+.verdict-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+.verdict-text-col { flex: 1; }
+
+#verdictWord {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1;
+  display: block;
+  margin-bottom: 5px;
+}
+
+#oneLiner {
+  font-size: 12px;
+  line-height: 1.55;
+  opacity: 0.88;
+  font-weight: 300;
+}
+
+/* Save Button */
+.btn-save {
+  width: 100%;
+  padding: 11px;
+  border-radius: 100px;
+  border: none;
+  background: var(--lilac-deep);
+  color: white;
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-bottom: 10px;
+  transition: all 0.2s ease;
+  letter-spacing: 0.01em;
+}
+.btn-save:hover:not(:disabled) {
+  background: var(--lilac-dark);
+  transform: translateY(-1px);
+}
+.btn-save:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+.btn-save.saving  { opacity: 0.65; cursor: not-allowed; }
+.btn-save.saved   { background: #D4E8D8; color: #3A7A45; cursor: default; }
+.btn-save.save-error { background: #F5E6EF; color: #A0527A; }
+
+.open-in-app {
+  display: block;
+  text-align: center;
+  font-size: 11px;
+  color: var(--lilac-deep);
+  text-decoration: none;
+  margin-bottom: 6px;
+  transition: opacity 0.15s;
+}
+.open-in-app:hover { opacity: 0.7; text-decoration: underline; }
+
+/* Re-analyse row */
+#reanalyseRow {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--ink-soft);
+  margin-top: 4px;
+}
+
+#reanalyseBtn {
+  color: var(--lilac-deep);
+  cursor: pointer;
+  font-size: 10px;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: var(--sans);
+  text-decoration: underline;
+}
+#reanalyseBtn:hover { opacity: 0.7; }
+
+/* ── STATE: ERROR ────────────────────────────────────────── */
+#stateError {
+  padding: 20px 16px 18px;
+}
+
+.error-box {
+  background: var(--lilac-pale);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.error-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.error-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: var(--lilac-deep);
+  margin-top: 1px;
+}
+
+#errorTitle {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.3;
+}
+
+#errorDesc {
+  font-size: 12px;
+  color: var(--ink-mid);
+  line-height: 1.6;
+  margin-bottom: 8px;
+}
+
+/* Debug info — always visible for testing */
+.error-debug-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+  margin-bottom: 3px;
+}
+
+#errorDebug {
+  font-size: 10px;
+  color: var(--ink-soft);
+  font-family: 'Courier New', monospace;
+  background: var(--cream-deep);
+  padding: 6px 8px;
+  border-radius: 6px;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+#btnRetry {
+  width: 100%;
+  padding: 10px;
+  border-radius: 100px;
+  background: transparent;
+  border: 1.5px solid var(--lilac-deep);
+  color: var(--lilac-deep);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+#btnRetry:hover { background: var(--lilac-pale); }
+
+/* ── Scrollbar ────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-mid); border-radius: 4px; }
+
+</style>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────── -->
+<div class="header">
+  <div class="logo">
+    <span class="notion">Notion</span><span class="clip">Clip</span>
+  </div>
+  <div class="header-actions">
+    <a class="open-app" href="https://notion-clips.vercel.app" target="_blank">
+      Open app →
+    </a>
+    <button id="btnClosePanel" class="close-panel-btn" type="button" title="Close NotionClip" aria-label="Close NotionClip">&times;</button>
+  </div>
+</div>
+
+<!-- ── Video Strip (hidden until video detected) ───────────── -->
+<div id="videoStrip">
+  <div id="videoTitle">Loading video info...</div>
+  <div id="videoUrl"></div>
+</div>
+
+<!-- ── Main Content ────────────────────────────────────────── -->
+<div id="mainContent">
+
+  <!-- STATE: IDLE ─────────────────────────────────────────── -->
+  <div id="stateIdle">
+    <div class="idle-icon">
+      <!-- Play icon -->
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="5,3 19,12 5,21"/>
+      </svg>
+    </div>
+    <div class="idle-heading">Analyse this video</div>
+    <div class="idle-sub">Get a Watch / Skip verdict in seconds</div>
+    <button id="btnAnalyse">Analyse Now</button>
+    <div class="idle-note">Quick mode · ~30 seconds · No sign-in needed</div>
+  </div>
+
+  <!-- STATE: LOADING ──────────────────────────────────────── -->
+  <div id="stateLoading" style="display:none">
+    <div class="progress-bar-wrap">
+      <div class="progress-bar-fill"></div>
+    </div>
+    <div id="loadingText">Fetching transcript...</div>
+    <div class="loading-sub" id="loadingSub">This usually takes 8–20 seconds</div>
+    <div id="loadingMeta">Fast path enabled</div>
+  </div>
+
+  <!-- STATE: RESULT ───────────────────────────────────────── -->
+  <div id="stateResult" style="display:none">
+
+    <div id="verdictBadge" class="verdict-badge watch">
+      <!-- Watch icon (eye) -->
+      <svg id="verdictIconWatch" class="verdict-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+        <circle cx="12" cy="12" r="3"/>
+      </svg>
+      <!-- Skip icon (eye-off) — swap via JS -->
+      <svg id="verdictIconSkip" class="verdict-icon" style="display:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+        <line x1="1" y1="1" x2="23" y2="23"/>
+      </svg>
+      <div class="verdict-text-col">
+        <span id="verdictWord">Watch</span>
+        <span id="oneLiner">One-liner summary appears here</span>
+      </div>
+    </div>
+
+    <button class="btn-save" id="btnSave">Save to Notion</button>
+
+    <a class="open-in-app" href="https://notion-clips.vercel.app" target="_blank">
+      Full analysis in app →
+    </a>
+
+    <div id="reanalyseRow">
+      <span>Analysed <span id="cachedTime">just now</span></span>
+      <span>·</span>
+      <button id="reanalyseBtn">Re-analyse</button>
+    </div>
+
+  </div>
+
+  <!-- STATE: ERROR ────────────────────────────────────────── -->
+  <div id="stateError" style="display:none">
+    <div class="error-box">
+      <div class="error-header">
+        <!-- Alert circle icon -->
+        <svg class="error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="8" x2="12" y2="12"/>
+          <circle cx="12" cy="16" r="0.5" fill="currentColor"/>
+        </svg>
+        <div id="errorTitle">Something went wrong</div>
+      </div>
+      <div id="errorDesc">An unexpected error occurred.</div>
+      <div class="error-debug-label">Debug info</div>
+      <div id="errorDebug">—</div>
+    </div>
+    <button id="btnRetry">Try Again</button>
+  </div>
+
+</div><!-- /mainContent -->
+
+<script src="popup.js"></script>
+</body>
+</html>

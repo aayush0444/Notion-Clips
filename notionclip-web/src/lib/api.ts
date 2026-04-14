@@ -406,7 +406,7 @@ export const api = {
     videoUrl: string,
     sessionId: string,
     timestampNotes?: Array<{ label: string; seconds: number; note: string; title?: string }>
-  ): Promise<{ status: string; page_id: string | null; row_page_id: string | null; database_id: string | null }> {
+  ): Promise<{ status: string; page_id: string | null; row_page_id: string | null; database_id: string | null; status_message?: string | null }> {
     const res = await fetch(`${API_BASE}/push`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -428,6 +428,7 @@ export const api = {
       page_id: data.page_id || null,
       row_page_id: data.row_page_id || data.page_id || null,
       database_id: data.database_id || null,
+      status_message: data.status_message || null,
     }
   },
 

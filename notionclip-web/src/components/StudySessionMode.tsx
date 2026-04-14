@@ -16,6 +16,7 @@ import {
   pushStudySessionToNotion,
   submitAnswer,
 } from "@/lib/api"
+import { backendUrl } from "@/lib/backendUrl"
 import { useAppStore } from "@/lib/store"
 
 type SourceType = "youtube" | "article" | "pdf"
@@ -29,9 +30,6 @@ type SourceInput = {
 }
 
 type ViewState = "setup" | "building" | "teaching" | "complete"
-
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL || "https://notion-clips-production.up.railway.app"
 
 function createEmptySource(type: SourceType = "youtube"): SourceInput {
   return {
@@ -79,7 +77,7 @@ export function StudySessionMode() {
     const poll = async () => {
       try {
         const query = userId ? `?user_id=${encodeURIComponent(userId)}` : ""
-        const res = await fetch(`${API_BASE}/study-session/${studySessionId}${query}`)
+        const res = await fetch(backendUrl(`/study-session/${studySessionId}${query}`))
         if (!res.ok) return
         const data = (await res.json()) as StudySession
         if (!active) return

@@ -841,6 +841,7 @@ async def push_to_notion_endpoint(payload: PushRequest) -> PushResponse:
         page_url=_notion_page_url(page_id),
         row_page_id=page_id,
         database_id=database_id,
+        status_message=status_msg,
     )
 
 

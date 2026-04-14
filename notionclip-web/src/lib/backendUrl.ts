@@ -1,17 +1,15 @@
-const PROD_API_BASE = "https://notion-clips-production.up.railway.app"
-const DEV_API_BASE = "http://127.0.0.1:8000"
-
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "")
 }
 
 const configuredBase =
-  process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL
+  process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || process.env.API_BASE_URL
 
-const fallbackBase =
-  process.env.NODE_ENV === "development" ? DEV_API_BASE : PROD_API_BASE
+const rawApiBase = (configuredBase || "").trim()
 
-const rawApiBase = (configuredBase || fallbackBase).trim()
+if (!rawApiBase) {
+  throw new Error("Missing API base URL. Set NEXT_PUBLIC_API_URL or NEXT_PUBLIC_BACKEND_URL (for local use .env.local).")
+}
 
 export const API_BASE = trimTrailingSlash(rawApiBase)
 

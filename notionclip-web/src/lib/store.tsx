@@ -7,10 +7,37 @@ import { backendUrl } from './backendUrl'
 
 const APP_STATE_KEY = "notionclip_app_state_v1"
 
+function syncAuthToExtension(session: { access_token: string; user: { id: string; user_metadata?: Record<string, unknown> } } | null) {
+  if (typeof window === "undefined") return
+
+  if (!session) {
+    window.postMessage({ type: "NOTIONCLIP_CLEAR_AUTH" }, window.location.origin)
+    return
+  }
+
+  const notionToken = typeof session.user.user_metadata?.notion_token === "string"
+    ? session.user.user_metadata.notion_token
+    : ""
+
+  window.postMessage(
+    {
+      type: "NOTIONCLIP_SYNC_AUTH",
+      payload: {
+        access_token: session.access_token,
+        user_id: session.user.id,
+        notion_token: notionToken,
+      },
+    },
+    window.location.origin
+  )
+}
+
 function shouldPersistResults(): boolean {
   if (typeof window === "undefined") return true
-  const host = window.location.hostname
-  return host === "localhost" || host === "127.0.0.1"
+  const override = process.env.NEXT_PUBLIC_PERSIST_RESULTS
+  if (override === "true") return true
+  if (override === "false") return false
+  return process.env.NODE_ENV !== "production"
 }
 
 type PersistedAppState = {
@@ -182,9 +209,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const supabase = getSupabaseClient()
     const syncUser = async () => {
       const { data } = await supabase.auth.getSession()
-      const user = data.session?.user
+      const session = data.session
+      const user = session?.user
       setUserId(user?.id || null)
       setUserEmail(user?.email || null)
+
+      if (session) {
+        syncAuthToExtension({
+          access_token: session.access_token,
+          user: {
+            id: session.user.id,
+            user_metadata: session.user.user_metadata as Record<string, unknown> | undefined,
+          },
+        })
+      } else {
+        syncAuthToExtension(null)
+      }
     }
     syncUser()
 
@@ -192,6 +232,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const user = session?.user
       setUserId(user?.id || null)
       setUserEmail(user?.email || null)
+
+      if (session) {
+        syncAuthToExtension({
+          access_token: session.access_token,
+          user: {
+            id: session.user.id,
+            user_metadata: session.user.user_metadata as Record<string, unknown> | undefined,
+          },
+        })
+      } else {
+        syncAuthToExtension(null)
+      }
     })
 
     let id = localStorage.getItem("notionclip_session_id")

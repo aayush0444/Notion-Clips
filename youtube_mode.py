@@ -27,10 +27,11 @@ def get_supadata_api_key():
 
 def _is_cloud_runtime() -> bool:
     return bool(
-        os.getenv("RAILWAY_ENVIRONMENT")
-        or os.getenv("RAILWAY_PROJECT_ID")
+        os.getenv("RENDER")
         or os.getenv("VERCEL")
-        or os.getenv("RENDER")
+        or os.getenv("K_SERVICE")
+        or os.getenv("FLY_APP_NAME")
+        or os.getenv("DYNO")
     )
 
 

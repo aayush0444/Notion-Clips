@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>NotionClip Extension Tester</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .test-section {
+      background: white;
+      padding: 20px;
+      margin: 20px 0;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    h2 {
+      margin-top: 0;
+      color: #333;
+    }
+    .status {
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 13px;
+    }
+    .pass {
+      background: #d4edda;
+      border: 1px solid #c3e6cb;
+      color: #155724;
+    }
+    .fail {
+      background: #f8d7da;
+      border: 1px solid #f5c6cb;
+      color: #721c24;
+    }
+    .info {
+      background: #d1ecf1;
+      border: 1px solid #bee5eb;
+      color: #0c5460;
+    }
+    button {
+      background: #7A5BB5;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      margin: 5px;
+    }
+    button:hover {
+      background: #5A3B95;
+    }
+    pre {
+      background: #f8f9fa;
+      padding: 12px;
+      border-radius: 4px;
+      overflow-x: auto;
+      font-size: 12px;
+    }
+    .step {
+      margin: 20px 0;
+      padding: 15px;
+      background: #f8f9fa;
+      border-left: 4px solid #7A5BB5;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔍 NotionClip Extension Tester</h1>
+  
+  <div class="test-section">
+    <h2>Instructions</h2>
+    <div class="step">
+      <strong>Step 1:</strong> Open this file on a YouTube video page<br>
+      Example: <code>https://www.youtube.com/watch?v=dQw4w9WgXcQ</code>
+    </div>
+    <div class="step">
+      <strong>Step 2:</strong> Open browser console (F12)<br>
+      Watch for <code>[NotionClip]</code> messages
+    </div>
+    <div class="step">
+      <strong>Step 3:</strong> Click "Run All Tests" below
+    </div>
+  </div>
+
+  <div class="test-section">
+    <h2>Test Results</h2>
+    <div id="results"></div>
+    <button onclick="runAllTests()">🧪 Run All Tests</button>
+    <button onclick="clearResults()">🗑️ Clear</button>
+  </div>
+
+  <div class="test-section">
+    <h2>Manual Actions</h2>
+    <button onclick="testExtensionLoaded()">Check if Extension Loaded</button>
+    <button onclick="testVideoData()">Extract Video Data</button>
+    <button onclick="testMessageExtension()">Send Message to Extension</button>
+  </div>
+
+  <script>
+    const results = document.getElementById('results');
+
+    function log(message, type = 'info') {
+      const div = document.createElement('div');
+      div.className = `status ${type}`;
+      div.textContent = message;
+      results.appendChild(div);
+      console.log(`[Test] ${message}`);
+    }
+
+    function clearResults() {
+      results.innerHTML = '';
+    }
+
+    async function runAllTests() {
+      clearResults();
+      log('🧪 Starting extension tests...', 'info');
+      
+      await test1_UrlCheck();
+      await test2_VideoPlayer();
+      await test3_YouTubeObjects();
+      await test4_ScriptTags();
+      await test5_ExtensionLoaded();
+      await test6_VideoExtraction();
+      
+      log('✅ All tests complete!', 'pass');
+    }
+
+    async function test1_UrlCheck() {
+      log('Test 1: URL Check', 'info');
+      
+      const url = window.location.href;
+      log(`  Current URL: ${url}`, 'info');
+      
+      if (url.includes('youtube.com/watch')) {
+        log('  ✓ On YouTube video page', 'pass');
+        
+        const params = new URLSearchParams(window.location.search);
+        const videoId = params.get('v');
+        
+        if (videoId) {
+          log(`  ✓ Video ID found: ${videoId}`, 'pass');
+        } else {
+          log('  ✗ No video ID in URL', 'fail');
+        }
+      } else {
+        log('  ✗ NOT on YouTube video page', 'fail');
+      }
+    }
+
+    async function test2_VideoPlayer() {
+      log('Test 2: Video Player Elements', 'info');
+      
+      const player1 = document.querySelector('#movie_player');
+      const player2 = document.querySelector('.html5-video-player');
+      const video = document.querySelector('video');
+      
+      if (player1) log('  ✓ #movie_player found', 'pass');
+      else log('  ✗ #movie_player NOT found', 'fail');
+      
+      if (player2) log('  ✓ .html5-video-player found', 'pass');
+      else log('  ✗ .html5-video-player NOT found', 'fail');
+      
+      if (video) log('  ✓ <video> element found', 'pass');
+      else log('  ✗ <video> element NOT found', 'fail');
+    }
+
+    async function test3_YouTubeObjects() {
+      log('Test 3: YouTube Data Objects', 'info');
+      
+      if (window.ytInitialPlayerResponse) {
+        log('  ✓ window.ytInitialPlayerResponse exists', 'pass');
+      } else {
+        log('  ✗ window.ytInitialPlayerResponse missing', 'fail');
+      }
+      
+      if (window.ytInitialData) {
+        log('  ✓ window.ytInitialData exists', 'pass');
+      } else {
+        log('  ✗ window.ytInitialData missing', 'fail');
+      }
+      
+      if (window.ytplayer) {
+        log('  ✓ window.ytplayer exists', 'pass');
+      } else {
+        log('  ✗ window.ytplayer missing', 'fail');
+      }
+    }
+
+    async function test4_ScriptTags() {
+      log('Test 4: Script Tag Search', 'info');
+      
+      const scripts = document.querySelectorAll('script');
+      log(`  Found ${scripts.length} script tags`, 'info');
+      
+      let foundPlayerResponse = false;
+      for (const script of scripts) {
+        const content = script.textContent || '';
+        if (content.includes('ytInitialPlayerResponse')) {
+          foundPlayerResponse = true;
+          log('  ✓ Found ytInitialPlayerResponse in script', 'pass');
+          
+          const match = content.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});/s);
+          if (match) {
+            try {
+              const data = JSON.parse(match[1]);
+              log('  ✓ Parsed successfully', 'pass');
+              
+              if (data.captions) {
+                const tracks = data.captions.playerCaptionsTracklistRenderer?.captionTracks;
+                if (tracks && tracks.length > 0) {
+                  log(`  ✓ Found ${tracks.length} caption tracks`, 'pass');
+                  log(`    First track: ${tracks[0].languageCode || tracks[0].vssId}`, 'info');
+                } else {
+                  log('  ✗ No caption tracks', 'fail');
+                }
+              } else {
+                log('  ✗ No captions property', 'fail');
+              }
+            } catch (e) {
+              log(`  ✗ Parse failed: ${e.message}`, 'fail');
+            }
+          }
+          break;
+        }
+      }
+      
+      if (!foundPlayerResponse) {
+        log('  ✗ ytInitialPlayerResponse not found in any script', 'fail');
+      }
+    }
+
+    async function test5_ExtensionLoaded() {
+      log('Test 5: Extension Content Script', 'info');
+      
+      if (window.__notionclip) {
+        log('  ✓ window.__notionclip exists', 'pass');
+        log(`    Video ID: ${window.__notionclip.videoId}`, 'info');
+        log(`    Title: ${window.__notionclip.videoTitle}`, 'info');
+      } else {
+        log('  ✗ window.__notionclip NOT found', 'fail');
+        log('    Extension content script may not be loaded', 'fail');
+      }
+    }
+
+    async function test6_VideoExtraction() {
+      log('Test 6: Manual Video Extraction', 'info');
+      
+      const params = new URLSearchParams(window.location.search);
+      const videoId = params.get('v');
+      
+      if (!videoId) {
+        log('  ✗ Cannot extract - no video ID', 'fail');
+        return;
+      }
+      
+      // Try title extraction
+      let title = document.title.replace(/ - YouTube$/, '').trim();
+      const h1 = document.querySelector('h1.ytd-watch-metadata yt-formatted-string');
+      if (h1) title = h1.textContent.trim();
+      
+      log(`  Title: ${title}`, 'info');
+      
+      // Try to construct caption URL
+      const captionUrl = `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=srv3`;
+      log(`  Caption URL: ${captionUrl}`, 'info');
+      
+      try {
+        const response = await fetch(captionUrl);
+        if (response.ok) {
+          const text = await response.text();
+          log(`  ✓ Caption fetch SUCCESS (${text.length} bytes)`, 'pass');
+        } else {
+          log(`  ✗ Caption fetch FAILED: ${response.status}`, 'fail');
+        }
+      } catch (error) {
+        log(`  ✗ Caption fetch ERROR: ${error.message}`, 'fail');
+      }
+    }
+
+    async function testExtensionLoaded() {
+      clearResults();
+      log('Checking if NotionClip extension is loaded...', 'info');
+      
+      if (window.__notionclip) {
+        log('✓ Extension loaded!', 'pass');
+        log(JSON.stringify(window.__notionclip, null, 2), 'info');
+      } else {
+        log('✗ Extension NOT loaded', 'fail');
+        log('Make sure extension is installed and reloaded', 'fail');
+      }
+    }
+
+    async function testVideoData() {
+      clearResults();
+      await test6_VideoExtraction();
+    }
+
+    async function testMessageExtension() {
+      clearResults();
+      log('Attempting to message extension...', 'info');
+      
+      try {
+        // This will fail from a webpage, but shows the concept
+        chrome.runtime.sendMessage({type: 'GET_VIDEO_DATA'}, (response) => {
+          log('Response: ' + JSON.stringify(response), 'pass');
+        });
+      } catch (error) {
+        log('Cannot message from webpage - run from extension console', 'fail');
+      }
+    }
+
+    // Auto-run on load
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        log('Page loaded. Click "Run All Tests" to start.', 'info');
+      }, 1000);
+    });
+  </script>
+</body>
+</html>

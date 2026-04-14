@@ -648,7 +648,7 @@ export default function HomePage() {
                 <div className="output-row">
                   <div className="output-item" style={{ background: "#f0faf4", borderColor: "rgba(90,138,99,0.25)" }}><div className="output-item-tag" style={{ color: "var(--sage-deep)" }}>Verdict</div>WATCH — Contains architectural decision your team will face in Q3.</div>
                   <div className="output-item"><div className="output-item-tag">One-liner</div>Why microservices fail at &lt;50 engineers and when to switch back to a monolith.</div>
-                  <div className="output-item"><div className="output-item-tag">Tools mentioned</div>Kubernetes, Railway, Turso, tRPC, Hono</div>
+                  <div className="output-item"><div className="output-item-tag">Tools mentioned</div>Kubernetes, Render, Turso, tRPC, Hono</div>
                   <div className="output-item"><div className="output-item-tag">Decision to make</div>Should we split auth service now or wait until 10k DAU?</div>
                 </div>
               </div>

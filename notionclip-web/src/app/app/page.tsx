@@ -196,7 +196,7 @@ export default function AppPage() {
   const [guideIndex, setGuideIndex] = useState(0)
   const [isGuideHovered, setIsGuideHovered] = useState(false)
   const [isPushingNotion, setIsPushingNotion] = useState(false)
-  const [pushFeedback, setPushFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null)
+  const [pushFeedback, setPushFeedback] = useState<{ type: "success" | "error" | "info" | "warning"; message: string } | null>(null)
   const [notionPageId, setNotionPageId] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const wasProcessingRef = useRef(false)
@@ -362,6 +362,16 @@ export default function AppPage() {
       const response = await api.pushToNotion(mode, results, url || "", sessionId, timestampNotes)
       const rowPageId = response.row_page_id || response.page_id
       if (rowPageId) setNotionPageId(rowPageId)
+
+      // Show intermediate status if parent was archived/restored
+      if (response.status_message) {
+        setPushFeedback({
+          type: response.status_message.includes("✓") ? "info" : "warning",
+          message: response.status_message
+        })
+        // Wait a bit before showing success message
+        await new Promise(r => setTimeout(r, 2500))
+      }
 
       setPushFeedback({
         type: "success",
@@ -537,8 +547,14 @@ export default function AppPage() {
               </div>
               {pushFeedback && (
                 <p
-                  className={`mt-3 text-sm ${
-                    pushFeedback.type === "success" ? "text-[#2E7D57]" : "text-[#B34A4A]"
+                  className={`mt-3 text-sm font-medium ${
+                    pushFeedback.type === "success" 
+                      ? "text-[#2E7D57]" 
+                      : pushFeedback.type === "error" 
+                      ? "text-[#B34A4A]" 
+                      : pushFeedback.type === "info" 
+                      ? "text-[#6F52A8]" 
+                      : "text-[#D97706]"
                   }`}
                 >
                   {pushFeedback.message}

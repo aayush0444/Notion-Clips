@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://notion-clips-production.up.railway.app'
+import { API_BASE } from '@/lib/backendUrl'
 
 export async function POST(req: Request) {
   try {

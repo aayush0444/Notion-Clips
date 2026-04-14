@@ -29,9 +29,15 @@ router = APIRouter(prefix="/auth/notion", tags=["notion_oauth"])
 
 
 def _safe_frontend_base(frontend_url: Optional[str]) -> str:
-    url = frontend_url or os.getenv("FRONTEND_URL", "http://localhost:3000")
+    url = (
+        frontend_url
+        or os.getenv("FRONTEND_URL")
+        or os.getenv("NEXT_PUBLIC_FRONTEND_URL")
+        or os.getenv("APP_BASE_URL")
+        or "https://notionclip.vercel.app"
+    )
     if not isinstance(url, str) or not url.strip():
-        return "http://localhost:3000"
+        return "https://notionclip.vercel.app"
     return url.rstrip("/")
 
 
