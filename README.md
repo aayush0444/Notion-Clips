@@ -185,7 +185,7 @@ Full interactive docs at `https://notion-clips.onrender.com/docs`.
 ### Backend
 
 ```bash
-git clone https://github.com/aayush0444/notionclip
+git clone https://github.com/aayush0444/Notion-Clips
 cd notionclip/backend
 
 pip install -r requirements.txt
