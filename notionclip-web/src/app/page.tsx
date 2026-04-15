@@ -510,7 +510,7 @@ export default function HomePage() {
               <a href="#how">How it works</a>
               <a href="#modes">Modes</a>
               <a href="#pricing">Pricing</a>
-              <Link href="/app" onClick={handleAppNavigation} className="nav-cta">Try free →</Link>
+              <Link href="/app" onClick={handleAppNavigation} className="nav-cta">Get Started →</Link>
             </div>
           </div>
         </nav>
@@ -708,7 +708,7 @@ export default function HomePage() {
           </div>
         </section>
 
-        <section className="pricing" id="pricing">
+        {/* <section className="pricing" id="pricing">
           <div className="container" style={{ textAlign: "center" }}>
             <div className="reveal">
               <div className="section-tag" style={{ display: "block" }}>Pricing</div>
@@ -745,7 +745,7 @@ export default function HomePage() {
               </div>
             </div>
           </div>
-        </section>
+        </section> */}
 
         <section className="cta-section">
           <div className="container">
@@ -763,8 +763,8 @@ export default function HomePage() {
             <div className="footer-inner">
               <div className="footer-logo">Notion<span>Clip</span></div>
               <div className="footer-links">
-                <a href="#">Privacy</a><a href="#">Terms</a>
-                <a href="#">Twitter</a><a href="#">GitHub</a>
+                <a href="#">Privacy</a>
+                <a href="#">GitHub</a>
               </div>
               <div className="footer-copy">© 2026 NotionClip</div>
             </div>
