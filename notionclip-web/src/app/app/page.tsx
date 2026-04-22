@@ -6,7 +6,7 @@ import { Navbar } from "@/components/layout/Navbar"
 import { ContentSourceSelector } from "@/components/app/ContentSourceSelector"
 import { ModeSelector } from "@/components/app/ModeSelector"
 import { ProcessButton } from "@/components/app/ProcessButton"
-import { MetricStrip } from "@/components/app/MetricStrip"
+
 import { SmartWatch } from "@/components/SmartWatch"
 import { SynthesisMode } from "@/components/app/SynthesisMode"
 import { StudyModeView } from "@/components/app/results/StudyModeView"
@@ -187,7 +187,7 @@ export default function AppPage() {
   const { results, mode, url, setUrl, setVideoId, sourceType, setSourceType, setMode } = useAppStore()
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'extract' | 'synthesis'>('extract')
-  const [showAdvancedControls, setShowAdvancedControls] = useState(false)
+
   const [leftWidth, setLeftWidth] = useState(430)
   const [isLeftCollapsed, setIsLeftCollapsed] = useState(false)
   const [isResizing, setIsResizing] = useState(false)
@@ -321,18 +321,7 @@ export default function AppPage() {
     setSessionId(id)
   }, [])
 
-  useEffect(() => {
-    if (!showAdvancedControls) {
-      if (sourceType !== "youtube") setSourceType("youtube")
-      if (mode !== "study") setMode("study")
-    }
-  }, [showAdvancedControls, sourceType, mode, setSourceType, setMode])
 
-  useEffect(() => {
-    if (results || sourceType !== "youtube" || mode !== "study") {
-      setShowAdvancedControls(true)
-    }
-  }, [results, sourceType, mode])
 
   useEffect(() => {
     if (wasProcessingRef.current && !isProcessing && results && !isLeftCollapsed) {
@@ -418,39 +407,9 @@ export default function AppPage() {
               <div className="text-center text-sm uppercase tracking-[0.14em] app-text-muted">Workspace Controls</div>
             </div>
 
-            {!showAdvancedControls && (
-              <div className="min-w-0 overflow-hidden rounded-xl border border-[#E8E2F6] bg-white/90 p-4">
-                <div className="mb-4">
-                  <div className="text-xs uppercase tracking-[0.12em] text-[#8E7AAE]">Fast Start</div>
-                  <p className="mt-2 text-[1.02rem] leading-relaxed text-[#4D3D66] sm:text-base">
-                    Paste one YouTube lecture URL and generate exam-ready study notes in one click.
-                  </p>
-                </div>
-                <div className="space-y-3">
-                  <label className="block text-sm app-text-muted uppercase tracking-[0.12em]">YouTube URL</label>
-                  <div className="tech-gradient-ring">
-                    <input
-                      type="text"
-                      value={url}
-                      onChange={(event) => handleFastStartYoutubeChange(event.target.value)}
-                      placeholder="https://youtube.com/watch?v=..."
-                      className="bg-card px-4 py-4 text-[1.02rem] text-foreground placeholder:text-muted"
-                    />
-                  </div>
-                  <div className="grid grid-cols-3 gap-2 text-center text-sm text-[#7A5BB5]">
-                    <div className="rounded-md border border-[#E4D9F5] bg-[#F8F4FF] px-2 py-2">1. Paste</div>
-                    <div className="rounded-md border border-[#E4D9F5] bg-[#F8F4FF] px-2 py-2">2. Process</div>
-                    <div className="rounded-md border border-[#E4D9F5] bg-[#F8F4FF] px-2 py-2">3. Review</div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {showAdvancedControls && (
-              <div className="min-w-0 overflow-hidden rounded-xl border border-[#E8E2F6] bg-white/90 p-4">
-                <ContentSourceSelector />
-              </div>
-            )}
+            <div className="min-w-0 overflow-hidden rounded-xl border border-[#E8E2F6] bg-white/90 p-4">
+              <ContentSourceSelector />
+            </div>
 
             {sourceType === "youtube" && (
               <div className="min-w-0 overflow-hidden rounded-xl border border-[#F1E3C8] bg-[#FFF9EE] p-4">
@@ -466,7 +425,7 @@ export default function AppPage() {
               </div>
             )}
 
-            {showAdvancedControls && sourceType !== "study_session" && (
+            {sourceType !== "study_session" && (
               <div className="min-w-0 overflow-hidden rounded-xl border border-[#E8E2F6] bg-white/90 p-4">
                 <ModeSelector onViewModeChange={setViewMode} />
               </div>
@@ -475,24 +434,6 @@ export default function AppPage() {
             {sourceType !== "study_session" && (
               <div className="min-w-0 overflow-hidden rounded-xl border border-[#E8E2F6] bg-white/90 p-4">
                 <ProcessButton onProcessingChange={handleProcessingChange} onStageChange={setProcessingStage} />
-              </div>
-            )}
-
-            <div className="flex items-center justify-center">
-              <button
-                type="button"
-                onClick={() => setShowAdvancedControls((prev) => !prev)}
-                className="text-sm font-medium text-[#6F52A8] underline-offset-4 transition hover:text-[#5C4390] hover:underline"
-              >
-                {showAdvancedControls
-                  ? "Use fast start"
-                  : "Show advanced controls (PDF, Article, Study Session, Synthesis)"}
-              </button>
-            </div>
-
-            {results && (
-              <div className="min-w-0 overflow-hidden rounded-xl border border-[#E8E2F6] bg-white/90 p-4">
-                <MetricStrip />
               </div>
             )}
 
