@@ -24,10 +24,10 @@ export function WorkModeView({
 
   return (
     <div className="space-y-6">
-      <TimestampMomentsPanel
+{/* <TimestampMomentsPanel
         data={data}
         sourceUrl={sourceUrl}
-      />
+      /> */}
 
       <div className="flex items-center gap-4">
         <div className={`inline-flex items-center gap-2 rounded-lg px-4 py-2.5 border ${

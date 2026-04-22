@@ -65,10 +65,10 @@ export function StudyModeView({
           Structured, timestamped notes generated from the video.
         </div>
       </div>
-      <TimestampMomentsPanel
+{/* <TimestampMomentsPanel
         data={data}
         sourceUrl={sourceUrl}
-      />
+      /> */}
 
       <div className="bg-[#E9F0FB] border border-[#C8D9F2] rounded-lg p-6">
         <div className="text-xs text-[#2F4E77] mb-2 uppercase tracking-wider">Core Concept</div>

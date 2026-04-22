@@ -12,10 +12,10 @@ export function QuickModeView({
 }) {
   return (
     <div className="space-y-6">
-      <TimestampMomentsPanel
+{/* <TimestampMomentsPanel
         data={data}
         sourceUrl={sourceUrl}
-      />
+      /> */}
 
       <div className="bg-[#F1E8F6] border border-[#D9C2E8] rounded-lg p-5">
         <div className="text-xs text-[#7A5BB5] mb-2 uppercase tracking-wider">Quick Brief</div>
