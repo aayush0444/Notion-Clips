@@ -694,7 +694,7 @@ export default function HomePage() {
           </div>
         </section>
 
-        <section className="testimonials">
+        {/* <section className="testimonials">
           <div className="container">
             <div className="reveal" style={{ textAlign: "center" }}>
               <div className="section-tag" style={{ display: "block" }}>What people say</div>
@@ -706,7 +706,7 @@ export default function HomePage() {
               <div className="testimonial-card" data-tilt><div className="stars"><span className="star">★</span><span className="star">★</span><span className="star">★</span><span className="star">★</span><span className="star">★</span></div><p className="testimonial-quote">&quot;Synthesised four ML papers and two videos around one question. It found a contradiction neither paper mentioned explicitly. That was genuinely new.&quot;</p><div className="testimonial-author"><div className="author-avatar">PV</div><div><div className="author-name">Priya V.</div><div className="author-role">ML researcher</div></div></div></div>
             </div>
           </div>
-        </section>
+        </section> */}
 
         {/* <section className="pricing" id="pricing">
           <div className="container" style={{ textAlign: "center" }}>

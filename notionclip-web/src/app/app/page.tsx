@@ -499,6 +499,16 @@ export default function AppPage() {
                   }`}
                 >
                   {pushFeedback.message}
+                  {pushFeedback.type === "success" && notionPageId && (
+                    <a
+                      href={`https://notion.so/${notionPageId.replace(/-/g, "")}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-2 inline-flex items-center text-[#5E4496] underline underline-offset-2 hover:text-[#7A5BB5]"
+                    >
+                      Open in Notion ↗
+                    </a>
+                  )}
                 </p>
               )}
             </div>
