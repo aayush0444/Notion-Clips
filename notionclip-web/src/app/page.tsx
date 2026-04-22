@@ -509,7 +509,7 @@ export default function HomePage() {
             <div className="nav-links">
               <a href="#how">How it works</a>
               <a href="#modes">Modes</a>
-              <a href="#pricing">Pricing</a>
+              
               <Link href="/app" onClick={handleAppNavigation} className="nav-cta">Get Started →</Link>
             </div>
           </div>
