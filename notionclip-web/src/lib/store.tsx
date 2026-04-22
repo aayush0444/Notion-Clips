@@ -115,7 +115,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isConnected, setIsConnected] = useState(false)
   const [notionPageId, setNotionPageId] = useState<string | null>(null)
   const [url, setUrl] = useState("")
-  const [sourceType, setSourceType] = useState<'youtube' | 'pdf' | 'article' | 'study_session'>('youtube')
+  const [sourceType, setSourceTypeInternal] = useState<'youtube' | 'pdf' | 'article' | 'study_session'>('youtube')
+  
+  const setSourceType = (val: 'youtube' | 'pdf' | 'article' | 'study_session') => {
+    if (val !== sourceType) {
+      setResults(null)
+      setTranscript(null)
+      setQuestions([])
+      setProcessingTime(null)
+      setTranscriptFetchMs(null)
+      setExtractMs(null)
+      setExtractCacheHit(null)
+      setTranscriptCacheHit(null)
+      setDuration(null)
+      setWordCount(null)
+      setNotionPageId(null)
+
+      if (val !== 'youtube') {
+        setUrl("")
+        setVideoId(null)
+      }
+      if (val !== 'article') {
+        setArticleUrl("")
+      }
+      if (val !== 'pdf') {
+        setPdfFile(null)
+      }
+    }
+    setSourceTypeInternal(val)
+  }
   const [articleUrl, setArticleUrl] = useState("")
   const [pdfFile, setPdfFile] = useState<File | null>(null)
   const [videoId, setVideoId] = useState<string | null>(null)
@@ -140,7 +168,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const saved = JSON.parse(raw) as PersistedAppState
       if (allowPersistedResults) {
         if (typeof saved.url === "string") setUrl(saved.url)
-        if (saved.sourceType) setSourceType(saved.sourceType)
+        if (saved.sourceType) setSourceTypeInternal(saved.sourceType)
         if (typeof saved.articleUrl === "string") setArticleUrl(saved.articleUrl)
         if (typeof saved.videoId === "string" || saved.videoId === null) setVideoId(saved.videoId)
       }

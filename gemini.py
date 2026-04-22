@@ -27,9 +27,9 @@ You are building a knowledge map from multiple learning sources.
 The student wants to learn: {learning_goal}
 Their current level: {student_level}
 
-You have {n} sources:
+You have {{n}} sources:
 {source_list}
-(each formatted as: SOURCE {i} [{type}] "{title}": {extracted_text})
+(each formatted as: SOURCE {{i}} [{{type}}] "{{title}}": {{extracted_text}})
 
 Your task:
 Build a structured map of how knowledge is distributed

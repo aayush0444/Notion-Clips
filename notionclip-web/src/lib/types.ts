@@ -48,6 +48,7 @@ export interface ExtractResponse {
   word_count: number
   duration_minutes?: number | null
   insights: Insights
+  source_text?: string
   cache_hit?: boolean
 }
 

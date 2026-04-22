@@ -90,6 +90,7 @@ class ExtractResponse(BaseModel):
     word_count: int
     duration_minutes: Optional[float]
     insights: Dict[str, Any]
+    source_text: str = ""
     cache_hit: bool = False
 
 
@@ -131,6 +132,7 @@ def _extract_with_cache(
             word_count=int(cached.get("word_count") or len(content_text.split())),
             duration_minutes=duration_minutes,
             insights=cached["insights"],
+            source_text=content_text,
             cache_hit=True,
         )
 
@@ -167,6 +169,7 @@ def _extract_with_cache(
         word_count=word_count,
         duration_minutes=duration_minutes,
         insights=serialized,
+        source_text=content_text,
         cache_hit=False,
     )
 
