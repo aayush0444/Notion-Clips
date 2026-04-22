@@ -57,7 +57,6 @@ router = APIRouter(prefix="/smart-watch", tags=["smart-watch"])
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL = "openai/gpt-4o-mini"
-GEMINI_MODEL = "gemini-2.0-flash"
 PROMPT_VERSION = "smart-watch-v1"
 QUICK_CHECK_WORD_BUDGET = 700
 
@@ -487,8 +486,8 @@ def _format_chunk_with_timestamps(chunk: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-async def _analyze_chunk_with_gemini(user_question: str, chunk_text: str) -> List[Dict[str, Any]]:
-    key = os.getenv("GOOGLE_API_KEY", "").strip()
+async def _analyze_chunk(user_question: str, chunk_text: str) -> List[Dict[str, Any]]:
+    key = os.getenv("OPENROUTER_API_KEY", "").strip()
     if not key:
         return []
 
@@ -521,20 +520,23 @@ User question: {user_question}
 Transcript chunk (with timestamps):
 {chunk_text}
 """
-    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={key}"
     payload = {
-        "systemInstruction": {"parts": [{"text": system_prompt}]},
-        "contents": [{"parts": [{"text": user_prompt}]}],
-        "generationConfig": {"temperature": 0},
+        "model": OPENROUTER_MODEL,
+        "temperature": 0,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
     }
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
 
     try:
         async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.post(endpoint, json=payload)
+            resp = await client.post(OPENROUTER_BASE_URL, headers=headers, json=payload)
             resp.raise_for_status()
             data = resp.json()
-            text = data["candidates"][0]["content"]["parts"][0]["text"]
-            parsed = _clean_json(text)
+            content = data["choices"][0]["message"]["content"]
+            parsed = _clean_json(content)
             moments = parsed.get("relevant_moments") or []
             if not isinstance(moments, list):
                 return []
@@ -795,7 +797,7 @@ async def smart_watch_deep_analysis(payload: SmartWatchDeepRequest):
             prompt_version=PROMPT_VERSION,
         )
 
-    tasks = [_analyze_chunk_with_gemini(question, ctext) for ctext in formatted_chunks]
+    tasks = [_analyze_chunk(question, ctext) for ctext in formatted_chunks]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     all_moments: List[Dict[str, Any]] = []
     for result in results:

@@ -3,32 +3,28 @@
 import { useEffect, useMemo, useState } from "react"
 import { Navbar } from "@/components/layout/Navbar"
 import { useAppStore } from "@/lib/store"
-import { smartWatchAnalytics, smartWatchDashboard, smartWatchHistory, getLibrary } from "@/lib/api"
-import { SmartWatchDashboardResponse, SmartWatchHistoryItem, UnifiedLibraryItem, LibraryContentType } from "@/lib/types"
+import { getLibrary } from "@/lib/api"
+import { UnifiedLibraryItem, LibraryContentType } from "@/lib/types"
 import Link from "next/link"
 
-function formatMs(ms: number) {
-  if (!ms) return "0s"
-  return `${(ms / 1000).toFixed(1)}s`
-}
-
-type SortKey = "newest" | "oldest" | "confidence"
-type VerdictFilter = "all" | "watch" | "skim" | "skip"
-type ModeFilter = "all" | "study" | "work" | "quick"
-type DateFilter = "all" | "today" | "week" | "month"
 type ContentTypeFilter = "all" | LibraryContentType
+type DateFilter = "all" | "today" | "week" | "month"
+type SortKey = "newest" | "oldest"
 
 const selectStyle = { colorScheme: "light" } as const
 const selectClassName =
   "bg-white/80 border border-[#ddd4f6] rounded-lg px-2.5 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-primary/35 focus:bg-white transition-colors"
 const optionClassName = "bg-white text-slate-800"
 
-function inferMode(item: SmartWatchHistoryItem): "study" | "work" | "quick" {
-  const verdict = String(item.verdict || "").toLowerCase()
-  if (verdict === "watch" || verdict === "skim" || verdict === "skip") return "quick"
-  const question = String(item.user_question || "").toLowerCase()
-  if (question.includes("work") || question.includes("team")) return "work"
-  return "study"
+function getContentTypeInfo(type: LibraryContentType) {
+  const typeMap = {
+    youtube_study: { label: "Study", emoji: "📚", color: "bg-blue-50 border-blue-200 text-blue-700" },
+    youtube_work: { label: "Work", emoji: "💼", color: "bg-purple-50 border-purple-200 text-purple-700" },
+    youtube_quick: { label: "Quick", emoji: "⚡", color: "bg-yellow-50 border-yellow-200 text-yellow-700" },
+    smart_watch: { label: "Smart Watch", emoji: "👀", color: "bg-green-50 border-green-200 text-green-700" },
+    study_session: { label: "Study Session", emoji: "🎓", color: "bg-pink-50 border-pink-200 text-pink-700" },
+  }
+  return typeMap[type] || { label: type, emoji: "📄", color: "bg-gray-50 border-gray-200 text-gray-700" }
 }
 
 function isInDateRange(value: string | undefined, filter: DateFilter): boolean {
@@ -43,19 +39,331 @@ function isInDateRange(value: string | undefined, filter: DateFilter): boolean {
   return diff <= 30 * 24 * 60 * 60 * 1000
 }
 
+function formatDate(dateStr: string) {
+  try {
+    const date = new Date(dateStr)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffMins = Math.floor(diffMs / 60000)
+    const diffHours = Math.floor(diffMs / 3600000)
+    const diffDays = Math.floor(diffMs / 86400000)
+
+    if (diffMins < 1) return "Just now"
+    if (diffMins < 60) return `${diffMins}m ago`
+    if (diffHours < 24) return `${diffHours}h ago`
+    if (diffDays < 7) return `${diffDays}d ago`
+    
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  } catch {
+    return dateStr
+  }
+}
+
+function LibraryItemCard({ item, onClick }: { item: UnifiedLibraryItem; onClick: () => void }) {
+  const typeInfo = getContentTypeInfo(item.content_type)
+  
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full text-left rounded-xl border border-[#ddd4f6] bg-white/90 hover:bg-[#f8f6ff] p-4 space-y-3 transition-all hover:shadow-md group"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <h3 className="text-sm font-medium text-slate-900 truncate group-hover:text-primary transition-colors">
+            {item.title}
+          </h3>
+          {item.summary && (
+            <p className="text-xs text-slate-600 mt-1 line-clamp-2">{item.summary}</p>
+          )}
+        </div>
+        <span className={`px-2 py-1 rounded-lg text-[10px] font-medium border whitespace-nowrap ${typeInfo.color}`}>
+          {typeInfo.emoji} {typeInfo.label}
+        </span>
+      </div>
+
+      <div className="flex items-center gap-3 text-xs text-slate-500">
+        <span>{formatDate(item.created_at)}</span>
+        {item.notion_page_id && (
+          <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600">
+            📄 Notion
+          </span>
+        )}
+        {item.source_url && (
+          <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600">
+            🔗 Source
+          </span>
+        )}
+      </div>
+    </button>
+  )
+}
+
+function DetailModal({ item, onClose }: { item: UnifiedLibraryItem; onClose: () => void }) {
+  const typeInfo = getContentTypeInfo(item.content_type)
+  const data = item.content_data as any
+
+  return (
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div 
+        className="surface-premium rounded-2xl max-w-3xl w-full max-h-[80vh] overflow-y-auto p-6 space-y-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1">
+            <div className="flex items-center gap-2 mb-2">
+              <span className={`px-2 py-1 rounded-lg text-xs font-medium border ${typeInfo.color}`}>
+                {typeInfo.emoji} {typeInfo.label}
+              </span>
+              <span className="text-xs text-slate-500">{formatDate(item.created_at)}</span>
+            </div>
+            <h2 className="text-xl font-semibold text-slate-900">{item.title}</h2>
+            {item.summary && (
+              <p className="text-sm text-slate-600 mt-2">{item.summary}</p>
+            )}
+          </div>
+          <button
+            onClick={onClose}
+            className="px-3 py-1.5 rounded-lg text-xs bg-white/80 hover:bg-slate-100 text-slate-700 border border-[#ddd4f6]"
+          >
+            Close
+          </button>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-2">
+          {item.notion_page_id && (
+            <a
+              href={`https://notion.so/${item.notion_page_id.replace(/-/g, '')}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 rounded-lg text-xs bg-[#f6f2ff] hover:bg-[#eee6ff] text-primary border border-primary/20"
+            >
+              📄 Open in Notion
+            </a>
+          )}
+          {item.source_url && (
+            <a
+              href={item.source_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 rounded-lg text-xs bg-white/80 hover:bg-slate-100 text-slate-700 border border-[#ddd4f6]"
+            >
+              🔗 View Source
+            </a>
+          )}
+        </div>
+
+        <div className="border-t border-[#ddd4f6] pt-4 space-y-4">
+          {/* YouTube Study Content */}
+          {item.content_type === 'youtube_study' && (
+            <>
+              {data.core_concept && (
+                <div>
+                  <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wide mb-2">Core Concept</h3>
+                  <p className="text-sm text-slate-800 bg-blue-50 p-3 rounded-lg">{data.core_concept}</p>
+                </div>
+              )}
+              {data.key_facts && data.key_facts.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wide mb-2">Key Facts</h3>
+                  <ul className="space-y-1.5">
+                    {data.key_facts.slice(0, 5).map((fact: string, i: number) => (
+                      <li key={i} className="text-sm text-slate-700 flex gap-2">
+                        <span className="text-blue-500">•</span>
+                        <span>{fact}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {data.formula_sheet && data.formula_sheet.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wide mb-2">Formulas</h3>
+                  <div className="bg-slate-50 p-3 rounded-lg font-mono text-xs space-y-1">
+                    {data.formula_sheet.slice(0, 3).map((formula: string, i: number) => (
+                      <div key={i}>{formula}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* YouTube Work Content */}
+          {item.content_type === 'youtube_work' && (
+            <>
+              {data.one_liner && (
+                <div>
+                  <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wide mb-2">Summary</h3>
+                  <p className="text-sm text-slate-800 bg-purple-50 p-3 rounded-lg">{data.one_liner}</p>
+                </div>
+              )}
+              {data.recommendation && (
+                <div>
+                  <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wide mb-2">Recommendation</h3>
+                  <p className="text-sm text-slate-800 bg-yellow-50 p-3 rounded-lg">{data.recommendation}</p>
+                </div>
+              )}
+              {data.key_points && data.key_points.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wide mb-2">Key Points</h3>
+                  <ul className="space-y-1.5">
+                    {data.key_points.slice(0, 5).map((point: string, i: number) => (
+                      <li key={i} className="text-sm text-slate-700 flex gap-2">
+                        <span className="text-purple-500">•</span>
+                        <span>{point}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {data.tools_mentioned && data.tools_mentioned.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wide mb-2">Tools Mentioned</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {data.tools_mentioned.map((tool: string, i: number) => (
+                      <span key={i} className="px-2 py-1 bg-slate-100 text-slate-700 rounded text-xs">
+                        {tool}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* YouTube Quick Content */}
+          {item.content_type === 'youtube_quick' && (
+            <>
+              {data.summary && (
+                <div>
+                  <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wide mb-2">Summary</h3>
+                  <p className="text-sm text-slate-800">{data.summary}</p>
+                </div>
+              )}
+              {data.key_takeaways && data.key_takeaways.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wide mb-2">Key Takeaways</h3>
+                  <ul className="space-y-1.5">
+                    {data.key_takeaways.map((takeaway: string, i: number) => (
+                      <li key={i} className="text-sm text-slate-700 flex gap-2">
+                        <span className="text-yellow-500">•</span>
+                        <span>{takeaway}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Smart Watch Content */}
+          {item.content_type === 'smart_watch' && (
+            <>
+              {data.user_question && (
+                <div>
+                  <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wide mb-2">Question</h3>
+                  <p className="text-sm text-slate-800 italic">{data.user_question}</p>
+                </div>
+              )}
+              {data.verdict && (
+                <div>
+                  <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wide mb-2">Verdict</h3>
+                  <div className="flex items-center gap-3">
+                    <span className="px-3 py-1 bg-green-100 text-green-800 rounded-lg text-sm font-medium uppercase">
+                      {data.verdict}
+                    </span>
+                    {data.confidence && (
+                      <span className="text-xs text-slate-600">
+                        {Math.round(data.confidence * 100)}% confidence
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+              {data.reason && (
+                <div>
+                  <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wide mb-2">Reason</h3>
+                  <p className="text-sm text-slate-700">{data.reason}</p>
+                </div>
+              )}
+              {data.estimated_timestamp_range && (
+                <div>
+                  <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wide mb-2">Relevant Timeframe</h3>
+                  <span className="px-2 py-1 bg-slate-100 text-slate-700 rounded text-sm">
+                    {data.estimated_timestamp_range}
+                  </span>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Study Session Content */}
+          {item.content_type === 'study_session' && (
+            <>
+              {data.learning_goal && (
+                <div>
+                  <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wide mb-2">Learning Goal</h3>
+                  <p className="text-sm text-slate-800 bg-pink-50 p-3 rounded-lg">{data.learning_goal}</p>
+                </div>
+              )}
+              {data.student_level && (
+                <div>
+                  <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wide mb-2">Level</h3>
+                  <span className="px-2 py-1 bg-slate-100 text-slate-700 rounded text-xs capitalize">
+                    {data.student_level.replace('_', ' ')}
+                  </span>
+                </div>
+              )}
+              {data.concepts && data.concepts.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wide mb-2">Concepts Covered</h3>
+                  <div className="space-y-2">
+                    {data.concepts.slice(0, 3).map((concept: any, i: number) => (
+                      <div key={i} className="bg-slate-50 p-2 rounded text-xs">
+                        <div className="font-medium text-slate-800">{concept.concept_name}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {data.sources && data.sources.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-medium text-slate-700 uppercase tracking-wide mb-2">Sources</h3>
+                  <div className="space-y-1">
+                    {data.sources.map((source: any, i: number) => (
+                      <div key={i} className="text-xs text-slate-600">
+                        {source.type === 'youtube' && '📺'}
+                        {source.type === 'pdf' && '📄'}
+                        {source.type === 'article' && '🌐'}
+                        {' '}{source.title}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function LibraryPage() {
   const { sessionId, userId } = useAppStore()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [query, setQuery] = useState("")
-  const [verdictFilter, setVerdictFilter] = useState<VerdictFilter>("all")
-  const [modeFilter, setModeFilter] = useState<ModeFilter>("all")
+  const [contentTypeFilter, setContentTypeFilter] = useState<ContentTypeFilter>("all")
   const [dateFilter, setDateFilter] = useState<DateFilter>("all")
   const [sortBy, setSortBy] = useState<SortKey>("newest")
-  const [visibleCount, setVisibleCount] = useState(12)
-  const [selected, setSelected] = useState<SmartWatchHistoryItem | null>(null)
-  const [items, setItems] = useState<SmartWatchHistoryItem[]>([])
-  const [metrics, setMetrics] = useState<SmartWatchDashboardResponse | null>(null)
+  const [items, setItems] = useState<UnifiedLibraryItem[]>([])
+  const [selected, setSelected] = useState<UnifiedLibraryItem | null>(null)
 
   useEffect(() => {
     if (!sessionId) return
@@ -64,16 +372,17 @@ export default function LibraryPage() {
       setLoading(true)
       setError("")
       try {
-        const [history, dashboard] = await Promise.all([
-          smartWatchHistory(sessionId, userId, 100),
-          smartWatchDashboard(sessionId, userId),
-        ])
+        const library = await getLibrary(
+          sessionId, 
+          userId, 
+          contentTypeFilter === 'all' ? undefined : contentTypeFilter, 
+          100
+        )
         if (!mounted) return
-        setItems(history.items || [])
-        setMetrics(dashboard)
-      } catch {
+        setItems(library.items || [])
+      } catch (err: any) {
         if (!mounted) return
-        setError("Couldn’t load your library right now.")
+        setError(err?.message || "Couldn't load your library right now.")
       } finally {
         if (mounted) setLoading(false)
       }
@@ -82,132 +391,111 @@ export default function LibraryPage() {
     return () => {
       mounted = false
     }
-  }, [sessionId, userId])
+  }, [sessionId, userId, contentTypeFilter])
 
   const filteredSorted = useMemo(() => {
     const q = query.trim().toLowerCase()
-    const out = items.filter((item) => {
-      if (verdictFilter !== "all" && String(item.verdict || "").toLowerCase() !== verdictFilter) return false
-      if (modeFilter !== "all" && inferMode(item) !== modeFilter) return false
+    let filtered = items.filter((item) => {
       if (!isInDateRange(item.created_at, dateFilter)) return false
       if (!q) return true
-      const text = `${item.user_question} ${item.video_title || ""} ${item.reason || ""}`.toLowerCase()
-      return text.includes(q)
+      const searchText = `${item.title} ${item.summary || ""}`.toLowerCase()
+      return searchText.includes(q)
     })
 
-    out.sort((a, b) => {
-      if (sortBy === "confidence") {
-        const ac = typeof a.confidence === "number" ? a.confidence : -1
-        const bc = typeof b.confidence === "number" ? b.confidence : -1
-        return bc - ac
-      }
-      const at = a.created_at ? new Date(a.created_at).getTime() : 0
-      const bt = b.created_at ? new Date(b.created_at).getTime() : 0
+    filtered.sort((a, b) => {
+      const at = new Date(a.created_at).getTime()
+      const bt = new Date(b.created_at).getTime()
       return sortBy === "newest" ? bt - at : at - bt
     })
-    return out
-  }, [items, query, verdictFilter, modeFilter, dateFilter, sortBy])
 
-  useEffect(() => {
-    setVisibleCount(12)
-  }, [query, verdictFilter, modeFilter, dateFilter, sortBy])
+    return filtered
+  }, [items, query, dateFilter, sortBy])
 
-  const visibleItems = useMemo(
-    () => filteredSorted.slice(0, visibleCount),
-    [filteredSorted, visibleCount]
-  )
-
-  const hasMore = visibleCount < filteredSorted.length
+  const stats = useMemo(() => {
+    const total = items.length
+    const byType: Record<string, number> = {}
+    items.forEach(item => {
+      byType[item.content_type] = (byType[item.content_type] || 0) + 1
+    })
+    return { total, byType }
+  }, [items])
 
   return (
     <div className="min-h-screen text-slate-900 relative overflow-hidden">
       <Navbar />
       <main className="pt-20 max-w-6xl mx-auto px-8 pb-12 space-y-6 relative z-[1]">
+        {/* Header */}
         <div className="surface-premium rounded-2xl p-6">
           <div className="text-xs uppercase tracking-[0.14em] text-slate-500 mb-2">Library</div>
-          <h1 className="text-2xl font-semibold tracking-tight">Your Learning & Decision Archive</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Your Personal Knowledge Space</h1>
           <p className="text-sm text-slate-600 mt-2">
-            Review what you asked, what the system recommended, and where answers were found.
+            All your processed content from YouTube, Study Sessions, and Smart Watch in one unified library.
           </p>
           <div className="mt-4 flex items-center gap-2">
             <Link
               href="/app"
               className="px-3 py-1.5 rounded-lg text-xs bg-white/80 hover:bg-[#f6f2ff] text-slate-700 border border-[#ddd4f6]"
             >
-              Back to App
+              ← Back to App
             </Link>
           </div>
         </div>
 
-        {metrics && (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-            <div className="surface-premium rounded-xl p-4">
-              <div className="text-xs text-slate-500 uppercase tracking-[0.12em]">Total analyses</div>
-              <div className="text-2xl mt-1">{metrics.total_analyses}</div>
-            </div>
-            <div className="surface-premium rounded-xl p-4">
-              <div className="text-xs text-slate-500 uppercase tracking-[0.12em]">Verdicts</div>
-              <div className="text-sm mt-2 text-slate-700">
-                Watch {metrics.watch_count} · Skim {metrics.skim_count} · Skip {metrics.skip_count}
-              </div>
-            </div>
-            <div className="surface-premium rounded-xl p-4">
-              <div className="text-xs text-slate-500 uppercase tracking-[0.12em]">Avg confidence</div>
-              <div className="text-2xl mt-1">{Math.round((metrics.avg_confidence || 0) * 100)}%</div>
-            </div>
-            <div className="surface-premium rounded-xl p-4">
-              <div className="text-xs text-slate-500 uppercase tracking-[0.12em]">Timestamp utility</div>
-              <div className="text-sm mt-2 text-slate-700">
-                {metrics.timestamp_clicks} clicks / {metrics.timestamps_generated} generated
-              </div>
-            </div>
-            <div className="surface-premium rounded-xl p-4 md:col-span-2">
-              <div className="text-xs text-slate-500 uppercase tracking-[0.12em]">Speed profile</div>
-              <div className="text-sm mt-2 text-slate-700">
-                Quick-check {formatMs(metrics.avg_stage1_ms)} · Deep-analysis {formatMs(metrics.avg_stage2_ms)}
-              </div>
-            </div>
-            <div className="surface-premium rounded-xl p-4 md:col-span-2">
-              <div className="text-xs text-slate-500 uppercase tracking-[0.12em]">Estimated time saved</div>
-              <div className="text-2xl mt-1">{(metrics.estimated_time_saved_minutes || 0).toFixed(1)} min</div>
-              <div className="text-xs text-slate-500 mt-1">Based on skip + skim decisions and cached video durations</div>
-            </div>
+        {/* Stats */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="surface-premium rounded-xl p-3">
+            <div className="text-xs text-slate-500 uppercase tracking-[0.12em]">Total</div>
+            <div className="text-xl mt-1 font-semibold">{stats.total}</div>
           </div>
-        )}
+          <div className="surface-premium rounded-xl p-3">
+            <div className="text-xs text-slate-500 mb-1">📚 Study</div>
+            <div className="text-lg font-medium">{stats.byType.youtube_study || 0}</div>
+          </div>
+          <div className="surface-premium rounded-xl p-3">
+            <div className="text-xs text-slate-500 mb-1">💼 Work</div>
+            <div className="text-lg font-medium">{stats.byType.youtube_work || 0}</div>
+          </div>
+          <div className="surface-premium rounded-xl p-3">
+            <div className="text-xs text-slate-500 mb-1">⚡ Quick</div>
+            <div className="text-lg font-medium">{stats.byType.youtube_quick || 0}</div>
+          </div>
+          <div className="surface-premium rounded-xl p-3">
+            <div className="text-xs text-slate-500 mb-1">👀 Smart Watch</div>
+            <div className="text-lg font-medium">{stats.byType.smart_watch || 0}</div>
+          </div>
+          <div className="surface-premium rounded-xl p-3">
+            <div className="text-xs text-slate-500 mb-1">🎓 Sessions</div>
+            <div className="text-lg font-medium">{stats.byType.study_session || 0}</div>
+          </div>
+        </div>
 
+        {/* Filters */}
         <div className="surface-premium rounded-2xl p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="text-sm text-slate-800">Analyses</div>
+            <div className="text-sm font-medium text-slate-800">
+              {filteredSorted.length} {filteredSorted.length === 1 ? 'item' : 'items'}
+            </div>
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search question, reason, title..."
+              placeholder="Search title, summary..."
               className="w-full md:w-auto md:min-w-[280px] bg-white/80 border border-[#ddd4f6] rounded-lg px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#d8d0f4]"
             />
           </div>
 
           <div className="flex flex-wrap gap-2">
             <select
-              value={verdictFilter}
-              onChange={(e) => setVerdictFilter(e.target.value as VerdictFilter)}
+              value={contentTypeFilter}
+              onChange={(e) => setContentTypeFilter(e.target.value as ContentTypeFilter)}
               className={selectClassName}
               style={selectStyle}
             >
-              <option value="all" className={optionClassName}>All verdicts</option>
-              <option value="watch" className={optionClassName}>Watch</option>
-              <option value="skim" className={optionClassName}>Skim</option>
-              <option value="skip" className={optionClassName}>Skip</option>
-            </select>
-            <select
-              value={modeFilter}
-              onChange={(e) => setModeFilter(e.target.value as ModeFilter)}
-              className={selectClassName}
-              style={selectStyle}
-            >
-              <option value="all" className={optionClassName}>All modes</option>
-              <option value="quick" className={optionClassName}>Quick</option>
-              <option value="study" className={optionClassName}>Study</option>
-              <option value="work" className={optionClassName}>Work</option>
+              <option value="all" className={optionClassName}>All Types</option>
+              <option value="youtube_study" className={optionClassName}>📚 Study</option>
+              <option value="youtube_work" className={optionClassName}>💼 Work</option>
+              <option value="youtube_quick" className={optionClassName}>⚡ Quick</option>
+              <option value="smart_watch" className={optionClassName}>👀 Smart Watch</option>
+              <option value="study_session" className={optionClassName}>🎓 Study Session</option>
             </select>
             <select
               value={dateFilter}
@@ -228,160 +516,50 @@ export default function LibraryPage() {
             >
               <option value="newest" className={optionClassName}>Newest first</option>
               <option value="oldest" className={optionClassName}>Oldest first</option>
-              <option value="confidence" className={optionClassName}>Highest confidence</option>
             </select>
           </div>
 
-          {loading && <div className="text-sm text-slate-500">Loading library...</div>}
-          {error && <div className="text-sm text-red-300">{error}</div>}
-          {!loading && !filteredSorted.length && <div className="text-sm text-slate-500">No matching items yet.</div>}
+          {/* Content */}
+          {loading && (
+            <div className="text-center py-12 text-sm text-slate-500">
+              Loading your library...
+            </div>
+          )}
+          
+          {error && (
+            <div className="text-center py-12">
+              <div className="text-sm text-red-600 bg-red-50 inline-block px-4 py-2 rounded-lg">
+                {error}
+              </div>
+            </div>
+          )}
 
-          <div className="space-y-2 max-h-[540px] overflow-y-auto pr-1">
-            {visibleItems.map((item, i) => (
-              <button
-                type="button"
-                key={`${item.id || i}`}
-                onClick={() => setSelected(item)}
-                className="w-full text-left rounded-xl border border-[#ddd4f6] bg-white/82 p-4 space-y-2 hover:bg-[#f4f0ff] transition-colors"
-              >
-                <div className="text-sm text-slate-900">{item.user_question}</div>
-                <div className="flex items-center gap-2 text-xs text-slate-600">
-                  <span className="px-2 py-0.5 rounded-full border border-[#d8d0f4] bg-white/80">
-                    {(item.verdict || "unknown").toString().toUpperCase()}
-                  </span>
-                  {typeof item.confidence === "number" && (
-                    <span>{Math.round(item.confidence * 100)}% confidence</span>
-                  )}
-                  {item.created_at && <span>· {new Date(item.created_at).toLocaleString()}</span>}
-                </div>
-                {item.reason && <div className="text-sm text-slate-700">{item.reason}</div>}
-                {item.relevant_moments && item.relevant_moments.length > 0 && (
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    {item.relevant_moments.slice(0, 5).map((m, idx) => (
-                      <a
-                        key={`${m.timestamp_seconds}-${idx}`}
-                        href={m.youtube_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          if (sessionId) {
-                            void smartWatchAnalytics(
-                              sessionId,
-                              "smart_watch_timestamp_clicked",
-                              userId || null,
-                              { video_id: item.video_id, timestamp_seconds: m.timestamp_seconds, source: "library_list" }
-                            )
-                          }
-                        }}
-                        className="text-xs px-2.5 py-1 rounded-full border border-[#d8d0f4] bg-white/80 hover:bg-[#f6f2ff] text-slate-700"
-                        title={`${m.quote} — ${m.relevance}`}
-                      >
-                        ▶ {m.timestamp_display}
-                      </a>
-                    ))}
-                  </div>
-                )}
-              </button>
-            ))}
-          </div>
+          {!loading && !error && filteredSorted.length === 0 && (
+            <div className="text-center py-12 space-y-2">
+              <div className="text-4xl">📚</div>
+              <div className="text-sm text-slate-600">
+                {items.length === 0 
+                  ? "Your library is empty. Start processing videos to build your knowledge base!"
+                  : "No items match your filters."}
+              </div>
+            </div>
+          )}
 
-          {hasMore && (
-            <button
-              type="button"
-              onClick={() => setVisibleCount((c) => c + 12)}
-              className="w-full rounded-lg border border-[#d8d0f4] bg-white/80 py-2 text-sm text-slate-800 hover:bg-[#f6f2ff] transition-colors"
-            >
-              Load 12 more
-            </button>
+          {!loading && !error && filteredSorted.length > 0 && (
+            <div className="grid gap-3 md:grid-cols-2">
+              {filteredSorted.map((item) => (
+                <LibraryItemCard 
+                  key={item.id} 
+                  item={item} 
+                  onClick={() => setSelected(item)} 
+                />
+              ))}
+            </div>
           )}
         </div>
       </main>
 
-      {selected && (
-        <div className="fixed inset-0 z-50 bg-black/55 backdrop-blur-sm p-4 md:p-8">
-          <div className="max-w-3xl mx-auto mt-8 surface-premium rounded-2xl border border-[#ddd4f6] p-5 space-y-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-xs uppercase tracking-[0.12em] text-slate-500">Run details</div>
-                <h3 className="text-lg text-slate-900 mt-1">{selected.user_question}</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelected(null)}
-                className="rounded-lg border border-[#d8d0f4] bg-white/80 px-2.5 py-1 text-xs text-slate-700 hover:bg-[#f6f2ff]"
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="flex flex-wrap gap-2 text-xs text-slate-700">
-              <span className="px-2 py-0.5 rounded-full border border-[#d8d0f4] bg-white/80">
-                {(selected.verdict || "unknown").toString().toUpperCase()}
-              </span>
-              <span className="px-2 py-0.5 rounded-full border border-[#d8d0f4] bg-white/80">
-                Mode {inferMode(selected).toUpperCase()}
-              </span>
-              {typeof selected.confidence === "number" && (
-                <span>{Math.round(selected.confidence * 100)}% confidence</span>
-              )}
-              {selected.created_at && <span>· {new Date(selected.created_at).toLocaleString()}</span>}
-            </div>
-
-            {selected.reason && <p className="text-sm text-slate-700">{selected.reason}</p>}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-slate-600">
-              <div className="rounded-lg border border-[#ddd4f6] bg-white/82 p-3">
-                Video ID: <span className="text-slate-800">{selected.video_id}</span>
-              </div>
-              <div className="rounded-lg border border-[#ddd4f6] bg-white/82 p-3">
-                Est. range: <span className="text-slate-800">{selected.estimated_timestamp_range || "—"}</span>
-              </div>
-              <div className="rounded-lg border border-[#ddd4f6] bg-white/82 p-3">
-                Stage 1: <span className="text-slate-800">{formatMs(selected.stage1_ms || 0)}</span>
-              </div>
-              <div className="rounded-lg border border-[#ddd4f6] bg-white/82 p-3">
-                Stage 2: <span className="text-slate-800">{formatMs(selected.stage2_ms || 0)}</span>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <div className="text-sm text-slate-800">Relevant moments</div>
-              {selected.relevant_moments && selected.relevant_moments.length > 0 ? (
-                <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
-                  {selected.relevant_moments.map((m, idx) => (
-                    <a
-                      key={`${m.timestamp_seconds}-${idx}`}
-                      href={m.youtube_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={() => {
-                        if (sessionId) {
-                          void smartWatchAnalytics(
-                            sessionId,
-                            "smart_watch_timestamp_clicked",
-                            userId || null,
-                            { video_id: selected.video_id, timestamp_seconds: m.timestamp_seconds, source: "library_detail" }
-                          )
-                        }
-                      }}
-                      className="block rounded-lg border border-[#ddd4f6] bg-white/82 p-3 hover:bg-[#f4f0ff] transition-colors"
-                    >
-                      <div className="text-xs text-slate-700 mb-1">▶ {m.timestamp_display}</div>
-                      <div className="text-sm text-slate-900">{m.quote || "Moment reference"}</div>
-                      <div className="text-xs text-slate-600 mt-1">{m.relevance}</div>
-                    </a>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-sm text-slate-500">No extracted moments for this run.</div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {selected && <DetailModal item={selected} onClose={() => setSelected(null)} />}
     </div>
   )
 }
-
-
