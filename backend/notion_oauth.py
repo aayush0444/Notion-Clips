@@ -34,10 +34,10 @@ def _safe_frontend_base(frontend_url: Optional[str]) -> str:
         or os.getenv("FRONTEND_URL")
         or os.getenv("NEXT_PUBLIC_FRONTEND_URL")
         or os.getenv("APP_BASE_URL")
-        or "https://notionclip.vercel.app"
+        or "https://notion-clips.vercel.app"
     )
     if not isinstance(url, str) or not url.strip():
-        return "https://notionclip.vercel.app"
+        return "https://notion-clips.vercel.app"
     return url.rstrip("/")
 
 

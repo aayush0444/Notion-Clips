@@ -357,7 +357,12 @@ app = FastAPI(
 # More robust CORS for development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=[
+        "http://localhost:3000", 
+        "http://127.0.0.1:3000",
+        "https://notion-clips.vercel.app",
+        "https://notion-clips-aayush0444s-projects.vercel.app"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -375,7 +380,7 @@ async def global_exception_handler(request: Request, exc: Exception):
             "type": type(exc).__name__
         },
         headers={
-            "Access-Control-Allow-Origin": "http://localhost:3000",
+            "Access-Control-Allow-Origin": request.headers.get("origin") or "*",
             "Access-Control-Allow-Credentials": "true",
         }
     )
