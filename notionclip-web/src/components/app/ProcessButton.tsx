@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useAppStore } from '@/lib/store'
 import { api } from '@/lib/api'
-import { Button } from '@/components/ui/Button'
+import { motion } from 'framer-motion'
 
 type ProcessButtonProps = {
   onProcessingChange?: (loading: boolean) => void
@@ -16,22 +16,25 @@ export function ProcessButton({ onProcessingChange, onStageChange }: ProcessButt
   } = useAppStore()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
-  const modeCta = {
-    study: "Build Study Notes",
-    work: "Build Work Brief",
-    quick: "Generate Quick Summary",
-  } as const
-  const modeHint = {
-    study: "Deep notes with formulas, key facts, and self-test prompts.",
-    work: "Decision-focused brief with tools, decisions, and next actions.",
-    quick: "Fast high-signal summary with key takeaways.",
-  } as const
-  const sourceHint = {
-    youtube: "YouTube transcript extraction",
-    pdf: "PDF text extraction",
-    article: "Article content extraction",
-    study_session: "Study Session workspace",
-  } as const
+
+  // Determine button text dynamically based on sourceType and mode
+  let buttonLabel = ""
+  if (sourceType === "youtube") {
+    if (mode === "study") buttonLabel = "Extract Study Notes →"
+    else if (mode === "work") buttonLabel = "Generate Work Brief →"
+    else if (mode === "quick") buttonLabel = "Quick Summary →"
+    else buttonLabel = "Process Video →"
+  } else if (sourceType === "pdf") {
+    if (mode === "study") buttonLabel = "Extract from PDF →"
+    else if (mode === "work") buttonLabel = "Brief PDF Content →"
+    else buttonLabel = "Summarize PDF →"
+  } else if (sourceType === "article") {
+    if (mode === "work") buttonLabel = "Brief This Article →"
+    else if (mode === "study") buttonLabel = "Study This Article →"
+    else buttonLabel = "Summarize Article →"
+  } else if (sourceType === "study_session") {
+    buttonLabel = "Start Learning Session 🧠"
+  }
 
   useEffect(() => {
     setError("")
@@ -39,7 +42,7 @@ export function ProcessButton({ onProcessingChange, onStageChange }: ProcessButt
 
   const canProcess =
     sourceType === 'study_session'
-      ? false
+      ? false // Handled in StudySessionMode component? Wait, user asked to style it the same... actually Study Session has its own button, but let's keep it disabled if it is here. Wait, study session button is handled there.
       : sourceType === 'youtube'
       ? Boolean(videoId)
       : sourceType === 'pdf'
@@ -146,20 +149,17 @@ export function ProcessButton({ onProcessingChange, onStageChange }: ProcessButt
 
   return (
     <div className="w-full">
-      <Button 
-        variant="default" 
-        className="h-auto w-full rounded-lg bg-primary py-4 text-lg font-medium text-primary-foreground transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+      <motion.button 
+        whileHover={{ scale: canProcess && !loading ? 1.02 : 1 }}
+        whileTap={{ scale: canProcess && !loading ? 0.98 : 1 }}
+        className="w-full h-12 rounded-xl bg-[#7A5BB5] flex items-center justify-center text-white font-bold text-[16px] transition-all disabled:cursor-not-allowed disabled:opacity-50"
         disabled={!canProcess || loading}
         onClick={handleProcess}
-        title={modeHint[mode]}
       >
-        {loading ? "Building your output..." : sourceType === 'youtube' ? 'Process Video' : modeCta[mode]}
-      </Button>
-      <p className="mt-3 text-base leading-relaxed text-slate-500" title={modeHint[mode]}>
-        {modeHint[mode]} · {sourceHint[sourceType]}
-      </p>
+        {loading ? "Building your output..." : buttonLabel}
+      </motion.button>
       {error && (
-        <p className="text-center text-base text-danger mt-3">
+        <p className="text-center text-sm text-[#A0527A] mt-3 bg-[#FAEFF5] px-3 py-2 rounded-lg border border-[#E6C7D6]">
           {error || "We hit a temporary issue. Please retry in a few seconds."}
         </p>
       )}

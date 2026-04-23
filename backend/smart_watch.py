@@ -366,6 +366,44 @@ def _format_mmss(seconds: int) -> str:
     return f"{m:02d}:{s:02d}"
 
 
+def get_transcript_context(transcript: str, target_seconds: int, window_seconds: int = 15) -> str:
+    """
+    Extracts the most relevant sentences from a timestamped transcript 
+    for a given target time.
+    """
+    if not transcript:
+        return ""
+    
+    items = _extract_timestamped_sentences(transcript)
+    if not items:
+        return ""
+    
+    # Find sentences within a small window around the target
+    relevant = []
+    for item in items:
+        ts = int(item.get("timestamp_seconds", 0))
+        # We look for sentences that started just before or during the moment
+        if ts <= target_seconds and (target_seconds - ts) <= window_seconds:
+            relevant.append(str(item.get("text", "")).strip())
+        elif ts > target_seconds and (ts - target_seconds) <= 5: # Small lookahead
+            relevant.append(str(item.get("text", "")).strip())
+            
+    if not relevant:
+        # Fallback: Find the single closest sentence that started before the target
+        closest = None
+        min_diff = float('inf')
+        for item in items:
+            ts = int(item.get("timestamp_seconds", 0))
+            diff = target_seconds - ts
+            if 0 <= diff < min_diff:
+                min_diff = diff
+                closest = str(item.get("text", "")).strip()
+        return closest or ""
+
+    # Return joined sentences, limited to avoid wall of text
+    return " ".join(relevant[:2])
+
+
 def _first_quarter_text(transcript: str) -> str:
     timestamped = _extract_timestamped_sentences(transcript)
     if timestamped:
@@ -544,13 +582,19 @@ Transcript chunk (with timestamps):
             for m in moments:
                 if not isinstance(m, dict):
                     continue
-                seconds = int(m.get("timestamp_seconds", 0))
+                quote = str(m.get("quote", "")).strip()
+                relevance = str(m.get("relevance", "")).strip()
+                
+                # Fallback to transcript context if AI didn't provide a quote
+                if not quote:
+                    quote = get_transcript_context(chunk_text, seconds)
+
                 cleaned.append(
                     {
                         "timestamp_seconds": max(0, seconds),
                         "timestamp_display": str(m.get("timestamp_display", _format_mmss(seconds))),
-                        "quote": str(m.get("quote", "")).strip(),
-                        "relevance": str(m.get("relevance", "")).strip(),
+                        "quote": quote,
+                        "relevance": relevance,
                     }
                 )
             return cleaned

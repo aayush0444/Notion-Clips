@@ -180,15 +180,84 @@ class PushNotionRequest(BaseModel):
     user_id: Optional[str] = None
 
 
+class StudySessionChatRequest(BaseModel):
+    question: str
+    chat_history: List[Dict[str, str]] = []
+    session_id: str
+    user_id: Optional[str] = None
+
+
 def _safe_json_load(raw: str) -> Optional[dict]:
     if not raw:
         return None
     text = raw.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
+    
+    # Handle markdown code blocks
+    if "```" in text:
+        import re
+        match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
+        if match:
+            text = match.group(1).strip()
+        else:
+            text = text.strip("`").strip()
+            if text.startswith("json"):
+                text = text[4:].strip()
+    
+    # Identify boundaries for both objects and arrays
+    brace_start = text.find("{")
+    bracket_start = text.find("[")
+    
+    # Determine the actual start and end markers
+    if brace_start != -1 and (bracket_start == -1 or brace_start < bracket_start):
+        start_idx = brace_start
+        end_idx = text.rfind("}")
+    elif bracket_start != -1:
+        start_idx = bracket_start
+        end_idx = text.rfind("]")
+    else:
+        start_idx = -1
+        end_idx = -1
+
+    if start_idx != -1 and end_idx != -1:
+        text = text[start_idx:end_idx+1]
+
+    # Final cleaning: remove any trailing text after the last brace/bracket
+    if end_idx != -1:
+        text = text[:end_idx+1]
+
     try:
         return json.loads(text)
     except Exception:
+        # Attempt to repair unterminated JSON (common with Gemini)
+        try:
+            if text.startswith("{") and not text.endswith("}"):
+                repaired = text + "}"
+                return json.loads(repaired)
+            if text.startswith("[") and not text.endswith("]"):
+                repaired = text + "]"
+                return json.loads(repaired)
+        except Exception:
+            pass
+
+        # Last ditch: Regex for fields if it's a QuestionEvaluation
+        try:
+            result = {}
+            # Extract "correct": "..."
+            match_correct = re.search(r'"correct":\s*"([^"]+)"', text)
+            if match_correct:
+                result["correct"] = match_correct.group(1)
+            
+            # Extract "feedback": "..."
+            match_feedback = re.search(r'"feedback":\s*"([^"]+)"', text)
+            if match_feedback:
+                result["feedback"] = match_feedback.group(1)
+            
+            if "correct" in result and "feedback" in result:
+                return result
+        except Exception:
+            pass
+
+        logger.error(f"JSON parse error: Raw text length: {len(text)}. Snippet: {text[:200]}")
         return None
 
 
@@ -311,7 +380,7 @@ async def add_pdf(study_session_id: str, file: UploadFile = File(...)):
         )
 
     try:
-        title, text = extract_text_from_pdf(file_bytes)
+        title, text = await asyncio.to_thread(extract_text_from_pdf, file_bytes)
     except Exception:
         raise HTTPException(
             status_code=422,
@@ -374,6 +443,7 @@ async def add_pdf(study_session_id: str, file: UploadFile = File(...)):
 
 @router.post("/{study_session_id}/build")
 async def build_session(study_session_id: str, payload: StudySessionBuildRequest):
+    logger.info(f"--- BUILDING SESSION {study_session_id} ---")
     session = get_study_session(study_session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Study session not found")
@@ -423,7 +493,7 @@ async def build_session(study_session_id: str, payload: StudySessionBuildRequest
     successful_sources = [s for s in sources if s.get("extraction_status") == "done"]
     if len(successful_sources) < 2:
         try:
-            update_study_session(study_session_id, {"status": "failed"})
+            update_study_session(study_session_id, {"status": "complete"})
         except Exception:
             logger.warning("Failed to mark session as failed")
         raise HTTPException(
@@ -432,6 +502,12 @@ async def build_session(study_session_id: str, payload: StudySessionBuildRequest
         )
 
     source_list = _format_sources_for_prompt(successful_sources)
+    
+    # Bug 1 Fix: Explicitly log source lengths
+    logger.info(f"Building knowledge map with sources: {[{'idx': s.get('source_index'), 'len': len(s.get('extracted_text', ''))} for s in successful_sources]}")
+    for s in successful_sources:
+        logger.info(f"Source {s.get('source_index')} preview: {s.get('extracted_text', '')[:200]}")
+
     llm = get_model()
     km_prompt = KNOWLEDGE_MAP_PROMPT.format(
         learning_goal=session.get("learning_goal", ""),
@@ -439,20 +515,29 @@ async def build_session(study_session_id: str, payload: StudySessionBuildRequest
         n=len(successful_sources),
         source_list=source_list,
     )
-    km_response = await _invoke_with_timeout(llm, km_prompt, 30)
+    km_response = await _invoke_with_timeout(llm, km_prompt, 120)
+    km_data = None
     if not km_response:
         try:
-            update_study_session(study_session_id, {"status": "failed"})
+            update_study_session(study_session_id, {"status": "complete"})
         except Exception:
             logger.warning("Failed to mark session as failed")
-        raise HTTPException(status_code=500, detail="Failed to build knowledge map. Please retry.")
+        raise HTTPException(status_code=500, detail={"error": "knowledge_map_failed", "message": "Failed to build knowledge map due to timeout or missing response."})
     km_raw = km_response.content if km_response else ""
-    km_data = _safe_json_load(km_raw) or _default_knowledge_map()
+    km_data = _safe_json_load(km_raw)
+    
+    if not km_data:
+        logger.error(f"Failed to parse Knowledge Map JSON. Raw response: {km_raw[:500]}...")
+        update_study_session(study_session_id, {"status": "complete"})
+        raise HTTPException(status_code=500, detail={"error": "knowledge_map_failed", "message": "Knowledge map was empty or invalid JSON."})
+    
     try:
         km_obj = KnowledgeMap(**km_data)
-        knowledge_map = km_obj.dict()
-    except Exception:
-        knowledge_map = _default_knowledge_map()
+        knowledge_map = km_obj.model_dump()
+    except Exception as e:
+        logger.error(f"Pydantic Validation Error for Knowledge Map: {e}. Data: {km_data}")
+        update_study_session(study_session_id, {"status": "complete"})
+        raise HTTPException(status_code=500, detail={"error": "knowledge_map_failed", "message": f"Validation error: {str(e)}"})
 
     tutor_prompt = TUTOR_TEACHING_PROMPT.format(
         learning_goal=session.get("learning_goal", ""),
@@ -460,21 +545,25 @@ async def build_session(study_session_id: str, payload: StudySessionBuildRequest
         knowledge_map_json=json.dumps(knowledge_map, ensure_ascii=False),
         source_list=source_list,
     )
-    tutor_response = await _invoke_with_timeout(llm, tutor_prompt, 30)
-    if not tutor_response:
-        try:
-            update_study_session(study_session_id, {"status": "failed"})
-        except Exception:
-            logger.warning("Failed to mark session as failed")
-        raise HTTPException(status_code=500, detail="Failed to prepare tutor output. Please retry.")
-    tutor_raw = tutor_response.content if tutor_response else ""
-    tutor_data = _safe_json_load(tutor_raw) or _default_tutor_output(session.get("learning_goal", ""))
-
+    
+    # Bug 2 Fix: Wrap tutor output in try/except
     try:
+        tutor_data = None
+        tutor_response = await _invoke_with_timeout(llm, tutor_prompt, 120)
+        if not tutor_response:
+            raise ValueError("Timeout or empty response from LLM")
+            
+        tutor_raw = tutor_response.content
+        tutor_data = _safe_json_load(tutor_raw)
+        if not tutor_data:
+            raise ValueError("Failed to parse tutor output JSON")
+            
         tutor_obj = TutorOutput(**tutor_data)
-        tutor_output = tutor_obj.dict()
-    except Exception:
-        tutor_output = _default_tutor_output(session.get("learning_goal", ""))
+        tutor_output = tutor_obj.model_dump()
+    except Exception as e:
+        logger.error(f"Tutor output validation failed: {e}. Data: {tutor_data}")
+        update_study_session(study_session_id, {"status": "complete"})
+        raise HTTPException(status_code=500, detail={"error": "tutor_output_failed", "message": f"Teaching plan validation failed: {str(e)}"})
 
     # Ensure knowledge_check questions have UUIDs
     seen_ids = set()
@@ -735,4 +824,45 @@ async def push_session_to_notion(study_session_id: str, payload: PushNotionReque
     page_id = _create_page_with_overflow(page_id, payload, blocks[90:], token)
     notion_url = f"https://www.notion.so/{clean_page_id(page_id)}"
     return {"status": "ok", "notion_url": notion_url}
+
+
+@router.post("/{study_session_id}/chat")
+async def study_session_chat(study_session_id: str, payload: StudySessionChatRequest):
+    session = get_study_session(study_session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Study session not found")
+    _ensure_access(session, payload.user_id)
+
+    sources = session.get("sources") or []
+    successful_sources = [s for s in sources if s.get("extraction_status") == "done"]
+    if not successful_sources:
+        raise HTTPException(status_code=400, detail="No processed sources found for chat.")
+
+    # Combine transcripts for context
+    context = _format_sources_for_prompt(successful_sources)
+    learning_goal = session.get("learning_goal", "")
+
+    prompt = f"""You are an expert tutor helping a student with their learning goal: "{learning_goal}".
+You have several sources provided below. Answer the student's question accurately based on these sources.
+If the sources contradict, explain the different viewpoints.
+If the answer isn't in the sources, say you don't know based on these specific materials.
+
+SOURCES:
+{context}
+
+CHAT HISTORY:
+{json.dumps(payload.chat_history, ensure_ascii=False)}
+
+STUDENT QUESTION: {payload.question}
+ANSWER:"""
+
+    llm = get_model()
+    try:
+        response = await asyncio.to_thread(llm.invoke, prompt)
+        answer = response.content
+    except Exception as e:
+        logger.exception("Study session chat failed")
+        raise HTTPException(status_code=502, detail=str(e))
+
+    return {"answer": answer}
 

@@ -12,10 +12,10 @@ export function ModeSelector({ onViewModeChange }: ModeSelectorProps = {}) {
   const { mode, setMode } = useAppStore()
   const [viewMode, setViewMode] = useState<'extract' | 'synthesis'>('extract')
   
-  const modes: { id: Mode; label: string }[] = [
-    { id: 'study', label: 'Study' },
-    { id: 'work', label: 'Work' },
-    { id: 'quick', label: 'Quick' }
+  const modes: { id: Mode; icon: string; title: string; subtitle: string }[] = [
+    { id: 'study', icon: '📚', title: 'Study', subtitle: 'Deep notes' },
+    { id: 'work', icon: '💼', title: 'Work', subtitle: 'Decisions & briefs' },
+    { id: 'quick', icon: '⚡', title: 'Quick', subtitle: '2-min summary' }
   ]
   
   const handleViewModeChange = (newView: 'extract' | 'synthesis') => {
@@ -24,78 +24,77 @@ export function ModeSelector({ onViewModeChange }: ModeSelectorProps = {}) {
   }
 
   return (
-    <div>
-      <label className="mb-3 block text-sm app-text-muted uppercase tracking-[0.12em]">
-        Mode
-      </label>
-      
-      {/* View Mode Tabs */}
-      <div className="mb-5 flex gap-2 rounded-lg border border-border bg-card/80 p-1.5">
-        <button
-          onClick={() => handleViewModeChange('extract')}
-          className={cn(
-            "flex-1 rounded-md px-3 py-3 text-[1.02rem] transition-all duration-200",
-            viewMode === 'extract'
-              ? "bg-[#EDE6FA] text-[#3D2466] border border-[#CDBAEF]"
-              : "text-foreground/55 hover:text-foreground/80 hover:bg-[#F0EBF8]"
-          )}
-        >
-          Extract
-        </button>
-        <button
-          onClick={() => handleViewModeChange('synthesis')}
-          className={cn(
-            "flex-1 rounded-md px-3 py-3 text-[1.02rem] transition-all duration-200",
-            viewMode === 'synthesis'
-              ? "bg-[#F1E8F6] text-[#7A5BB5] border border-[#D9C2E8]"
-              : "text-foreground/55 hover:text-foreground/80 hover:bg-[#F0EBF8]"
-          )}
-        >
-          Synthesis
-        </button>
+    <div className="space-y-6">
+      <div>
+        <label className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#9B7FD4] border-b border-[#E8E0F0] pb-2 mb-4 block">
+          Mode
+        </label>
+        
+        {/* View Mode Tabs */}
+        <div className="flex gap-2 bg-card/80 p-1">
+          <button
+            onClick={() => handleViewModeChange('extract')}
+            className={cn(
+              "flex-1 rounded-xl px-3 py-3 text-[14px] font-semibold transition-all duration-200 shadow-sm",
+              viewMode === 'extract'
+                ? "bg-[#F5F2FD] border border-[#7A5BB5] text-[#7A5BB5] shadow-sm ring-1 ring-[#7A5BB5]/10"
+                : "bg-white border border-[#E8E0F0] text-[#5D546C] hover:border-[#7A5BB5]/50 hover:text-[#7A5BB5]"
+            )}
+          >
+            Extract
+          </button>
+          <button
+            onClick={() => handleViewModeChange('synthesis')}
+            className={cn(
+              "flex-1 rounded-xl px-3 py-3 text-[14px] font-bold transition-all duration-200 shadow-sm",
+              viewMode === 'synthesis'
+                ? "bg-[#F5F2FD] border border-[#7A5BB5] text-[#7A5BB5] shadow-sm ring-1 ring-[#7A5BB5]/10"
+                : "bg-white border border-[#E8E0F0] text-[#5D546C] hover:border-[#7A5BB5]/50 hover:text-[#7A5BB5]"
+            )}
+          >
+            Synthesis
+          </button>
+        </div>
       </div>
       
       {/* Processing Modes (only show if extract view) */}
       {viewMode === 'extract' && (
-      <>
-      <label className="mb-2 block text-sm app-text-muted uppercase tracking-[0.12em]">
-        Processing Mode
-      </label>
-    <div className="flex gap-2 rounded-lg border border-border bg-card/80 p-1.5">
-        {modes.map(m => {
-          const isActive = mode === m.id
-          return (
-            <button
-              key={m.id}
-              onClick={() => setMode(m.id)}
-              className={cn(
-                "flex-1 rounded-md px-4 py-3.5 text-[1.02rem] transition-all duration-200",
-                isActive 
-                  ? m.id === 'study'
-                    ? "bg-[#E9F0FB] text-[#2F4E77] border border-[#C8D9F2]"
-                    : m.id === 'work'
-                      ? "bg-[#F1E8F6] text-[#7A5BB5] border border-[#D9C2E8]"
-                      : "bg-[#EAF4EC] text-[#4F7D58] border border-[#C7DFC9]"
-                  : "text-foreground/55 hover:text-foreground/80 hover:bg-[#F0EBF8]"
-              )}
-            >
-              {m.label}
-            </button>
-          )
-        })}
+      <div>
+        <label className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#9B7FD4] border-b border-[#E8E0F0] pb-2 mb-4 block">
+          Processing Mode
+        </label>
+        <div className="grid grid-cols-3 gap-3">
+          {modes.map(m => {
+            const isActive = mode === m.id
+            return (
+              <button
+                key={m.id}
+                onClick={() => setMode(m.id)}
+                className={cn(
+                  "flex flex-col items-start p-3 rounded-xl border text-left transition-all duration-200 group shadow-sm",
+                  isActive 
+                    ? "bg-[#F5F2FD] border-[#7A5BB5] shadow-sm ring-1 ring-[#7A5BB5]/10"
+                    : "bg-white border-[#E8E0F0] hover:border-[#7A5BB5]/50 hover:bg-[#F9F8FF]"
+                )}
+              >
+                <div className="text-[20px] mb-2">{m.icon}</div>
+                <div className={cn("font-bold text-[14px] leading-tight", isActive ? "text-[#3D344D]" : "text-[#5D546C]")}>
+                  {m.title}
+                </div>
+                <div className={cn("text-[11px] mt-1 leading-tight font-medium", isActive ? "text-[#7A5BB5]" : "text-[#9B7FD4]")}>
+                  {m.subtitle}
+                </div>
+              </button>
+            )
+          })}
+        </div>
       </div>
-      <div className="mt-4 text-base app-text-muted leading-relaxed">
-        {mode === 'study' && 'Build deep study notes with core concepts, formulas, and exam-ready revision prompts.'}
-        {mode === 'work' && 'Get a practical work brief with a clear verdict, decisions, and next actions.'}
-        {mode === 'quick' && 'Capture the fastest high-signal summary with takeaways and useful follow-ups.'}
-      </div>
-      </>
       )}
       
       {/* Synthesis Mode Info */}
       {viewMode === 'synthesis' && (
-        <div className="mt-4 rounded-lg border border-[#D9C2E8] bg-[#F1E8F6] p-5">
-          <p className="text-base text-[#7A5BB5] leading-relaxed">
+        <div className="rounded-xl border border-[#D9C2E8] bg-[#F1E8F6] p-4 shadow-sm">
+          <p className="text-[13px] text-[#7A5BB5] leading-relaxed font-medium">
             🔗 Compare and synthesize insights across multiple sessions. Identify patterns, contradictions, and knowledge gaps.
           </p>
         </div>

@@ -268,7 +268,7 @@ export default function HomePage() {
         }
 
         .landing-page a { color: inherit; }
-        .landing-page .container { max-width: 1120px; margin: 0 auto; padding: 0 36px; position: relative; z-index: 1; }
+        .landing-page .container { max-width: 1240px; margin: 0 auto; padding: 0 32px; position: relative; z-index: 1; }
 
         #cursor {
           position: fixed;
@@ -310,7 +310,7 @@ export default function HomePage() {
 
         nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; padding: 22px 0; transition: background 0.35s, box-shadow 0.35s; box-shadow: 0 10px 26px rgba(61, 36, 102, 0.08); }
         nav.scrolled { background: rgba(250, 247, 242, 0.88); backdrop-filter: blur(20px) saturate(1.6); box-shadow: 0 1px 0 var(--border), 0 12px 30px rgba(61, 36, 102, 0.12); }
-        .nav-inner { max-width: 1120px; margin: 0 auto; padding: 0 36px; display: flex; align-items: center; justify-content: space-between; }
+        .nav-inner { max-width: 1240px; margin: 0 auto; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; }
         .nav-logo { font-family: var(--serif); font-size: 21px; color: var(--ink); text-decoration: none; letter-spacing: -0.02em; font-weight: 600; }
         .nav-logo span { color: var(--lilac-deep); }
         .nav-links { display: flex; align-items: center; gap: 38px; }

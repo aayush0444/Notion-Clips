@@ -4,17 +4,17 @@
 
 @layer base {
   :root {
-    --bg: #faf7f2;
+    --bg: #FAFAFC;
     --bg-card: #ffffff;
-    --border: rgba(155, 127, 212, 0.15);
-    --border-hover: rgba(155, 127, 212, 0.35);
-    --blue: #9b7fd4;
-    --purple: #7a5bb5;
-    --green: #5a8a63;
-    --red: #a0527a;
-    --yellow: #FCD34D;
-    --text: #2c1f3e;
-    --muted: #8b7aa8;
+    --border: rgba(122, 91, 181, 0.1);
+    --border-hover: rgba(122, 91, 181, 0.25);
+    --purple: #7A5BB5;
+    --purple-light: #F5F2FD;
+    --purple-soft: #EBE4F9;
+    --text: #3D344D;
+    --text-muted: #7D748C;
+    --green: #5A8A63;
+    --red: #A0527A;
   }
 
   * {
@@ -60,7 +60,7 @@
   }
 
   .surface-premium {
-    @apply bg-white/90 border backdrop-blur-xl shadow-[0_12px_42px_rgba(61,36,102,0.12)];
+    @apply bg-white/95 border border-[#E8E0F0] backdrop-blur-xl shadow-[0_8px_30px_rgba(61,36,102,0.06)];
   }
 
   .app-text-muted {

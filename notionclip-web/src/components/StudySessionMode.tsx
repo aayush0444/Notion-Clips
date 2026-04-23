@@ -49,7 +49,7 @@ function timestampToSeconds(timestamp: string): number | null {
 }
 
 export function StudySessionMode() {
-  const { sessionId, userId } = useAppStore()
+  const { sessionId, userId, setResults } = useAppStore()
   const [view, setView] = useState<ViewState>("setup")
   const [learningGoal, setLearningGoal] = useState("")
   const [studentLevel, setStudentLevel] = useState<StudentLevel | null>(null)
@@ -126,7 +126,28 @@ export function StudySessionMode() {
   }
 
   const handleStartSession = async () => {
-    if (!canStart || !studentLevel || !sessionId) return
+    if (!canStart || !studentLevel || !sessionId) {
+      // Explicit validation check for better UX
+      for (const source of sources) {
+        if (source.type === "pdf" && !source.file) {
+          setError("Please upload a PDF file for all PDF sources.")
+          return
+        }
+        if (source.type !== "pdf" && (!source.url || !source.url.trim())) {
+          setError(`Please provide a valid URL for your ${source.type} source.`)
+          return
+        }
+      }
+      if (learningGoal.trim().length < 10) {
+        setError("Please describe your learning goal in more detail (min 10 chars).")
+        return
+      }
+      if (!studentLevel) {
+        setError("Please select your current level.")
+        return
+      }
+      return
+    }
     setError("")
     setView("building")
     try {
@@ -154,9 +175,11 @@ export function StudySessionMode() {
         userId || undefined
       )
       setSessionData(built)
+      setResults(built)
       setView("teaching")
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to build study session.")
+    } catch (err: any) {
+      console.error("Build failed:", err)
+      setError(err.message || "Failed to build study session")
       setView("setup")
     }
   }
@@ -215,6 +238,7 @@ export function StudySessionMode() {
     setSessionData(null)
     setError("")
     setNotionUrl(null)
+    setResults(null)
   }
 
   const tutor: TutorOutput | null = sessionData?.tutor_output || null
@@ -309,230 +333,38 @@ export function StudySessionMode() {
 
   if (view === "teaching" && tutor && knowledgeMap) {
     return (
-      <div className="space-y-6">
-        <div className="surface-premium rounded-2xl p-6 space-y-3">
-          <div className="text-xs uppercase tracking-wider text-slate-500">Start here</div>
-          <div className="text-sm text-slate-900">{tutor.foundation}</div>
-          <div className="text-xs text-slate-500">
-            📍 Best explained in: {sourceTitle(tutor.foundation_source_index)}{" "}
-            {tutor.foundation_timestamp_or_page}
-          </div>
-        </div>
-
-        <div className="surface-premium rounded-2xl p-6 space-y-4">
-          <div className="text-xs uppercase tracking-wider text-slate-500">Core Teaching</div>
-          <div className="text-sm text-slate-800 whitespace-pre-line">{tutor.core_teaching}</div>
-          <div className="flex flex-wrap gap-2">
-            {tutor.core_citations.map((citation, idx) => {
-              const type = sourceType(citation.source_index)
-              const title = sourceTitle(citation.source_index)
-              const timestamp = citation.timestamp_or_page
-              const url = sourceUrl(citation.source_index)
-              const seconds = timestampToSeconds(timestamp)
-              const href =
-                type === "youtube" && seconds !== null
-                  ? `${url}${url.includes("?") ? "&" : "?"}t=${seconds}`
-                  : url
-              const icon = type === "youtube" ? "📹" : type === "pdf" ? "📄" : "🔗"
-              return (
-                <a
-                  key={`${citation.source_index}-${idx}`}
-                  href={href}
-                  target="_blank"
-                  rel="noreferrer"
-                  title={citation.quote}
-                  className="px-2.5 py-1 rounded-full border border-[#d8d0f4] bg-white/82 text-xs text-slate-700 hover:bg-[#f6f2ff]"
-                >
-                  {icon} {title} {timestamp}
-                </a>
-              )
-            })}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="surface-premium rounded-2xl p-5 border border-green-500/20 bg-green-500/5">
-            <div className="text-xs uppercase tracking-wider text-green-700 mb-2">✓ Sources Agree</div>
-            {knowledgeMap.agreements.length ? (
-              <ul className="space-y-2 text-sm text-slate-700">
-                {knowledgeMap.agreements.map((item, idx) => (
-                  <li key={idx}>• {item}</li>
-                ))}
-              </ul>
-            ) : (
-              <div className="text-xs text-slate-600">
-                Your sources cover distinct aspects — no direct overlaps found
-              </div>
-            )}
-          </div>
-          <div className="surface-premium rounded-2xl p-5 border border-yellow-500/20 bg-yellow-500/5">
-            <div className="text-xs uppercase tracking-wider text-yellow-700 mb-2">⚠️ Sources Disagree</div>
-            {knowledgeMap.contradictions.length ? (
-              <div className="space-y-3 text-sm text-slate-700">
-                {knowledgeMap.contradictions.map((c, idx) => (
-                  <div key={idx}>
-                    <div className="font-semibold">{c.topic}</div>
-                    <div>Source A says: {c.source_a_says}</div>
-                    <div>Source B says: {c.source_b_says}</div>
-                    {c.resolution && <div className="italic text-slate-600">Most likely: {c.resolution}</div>}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-xs text-slate-600">No contradictions detected.</div>
-            )}
-          </div>
-        </div>
-
-        <div className="surface-premium rounded-2xl p-5">
-          <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">Gaps in your sources</div>
-          <ul className="space-y-2 text-sm text-slate-700">
-            {knowledgeMap.knowledge_gaps.map((gap, idx) => (
-              <li key={idx}>• {gap}</li>
-            ))}
-          </ul>
-        </div>
-
-        <div className="surface-premium rounded-2xl p-6 space-y-4">
-          <div>
-            <div className="text-sm text-slate-900">Test Your Understanding</div>
-            <div className="text-xs text-slate-500">Answer all 3 questions to complete this session</div>
-          </div>
-          {visibleQuestions.map((q) => {
-            const evaluation = q.evaluation
-            const status =
-              evaluation?.correct === "true"
-                ? "border-green-500/30 bg-green-500/5"
-                : evaluation?.correct === "partial"
-                ? "border-yellow-500/30 bg-yellow-500/5"
-                : evaluation?.correct === "false"
-                ? "border-red-500/30 bg-red-500/5"
-                : "border-[#ddd4f6] bg-white/82"
-            return (
-              <div key={q.id} className={`rounded-xl border p-4 space-y-3 ${status}`}>
-                <div className="flex flex-wrap gap-2 text-xs text-slate-600">
-                  <span className="px-2 py-0.5 rounded-full border border-[#d8d0f4]">
-                    {q.difficulty.toUpperCase()}
-                  </span>
-                  <span className="px-2 py-0.5 rounded-full border border-[#d8d0f4]">
-                    {q.type.toUpperCase()}
-                  </span>
-                </div>
-                <div className="text-sm text-slate-900">{q.question}</div>
-                {!q.answered && (
-                  <>
-                    <textarea
-                      value={q.user_answer || ""}
-                      onChange={(e) => {
-                        const answer = e.target.value
-                        setSessionData((prev) => {
-                          if (!prev || !prev.tutor_output) return prev
-                          const updated = prev.tutor_output.knowledge_check.map((item) =>
-                            item.id === q.id ? { ...item, user_answer: answer } : item
-                          )
-                          return {
-                            ...prev,
-                            tutor_output: { ...prev.tutor_output, knowledge_check: updated },
-                          }
-                        })
-                      }}
-                      placeholder="Type your answer here..."
-                      className="w-full min-h-[120px] bg-white/80 border border-[#ddd4f6] rounded-lg px-3 py-2 text-sm text-slate-800"
-                    />
-                    <button
-                      type="button"
-                      disabled={evaluatingId === q.id || !q.user_answer?.trim()}
-                      onClick={() => handleSubmitAnswer(q)}
-                      className="px-4 py-2 rounded-lg border border-[#ddd4f6] bg-white/80 text-sm text-slate-700 hover:bg-[#f6f2ff] disabled:opacity-50"
-                    >
-                      {evaluatingId === q.id ? "Evaluating..." : "Submit Answer"}
-                    </button>
-                  </>
-                )}
-                {q.answered && evaluation && (
-                  <div className="text-xs text-slate-700 space-y-2">
-                    <div>
-                      {evaluation.correct === "true" && `✓ ${evaluation.feedback}`}
-                      {evaluation.correct === "partial" && `◐ ${evaluation.feedback}`}
-                      {evaluation.correct === "false" && `✗ ${evaluation.feedback}`}
-                    </div>
-                    {evaluation.misconception && <div>⚠️ Misconception: {evaluation.misconception}</div>}
-                    {evaluation.correction && <div>✓ Correction: {evaluation.correction}</div>}
-                    <div>
-                      Confirmed by: {sourceTitle(evaluation.cited_source_index)}{" "}
-                      {findTimestampForSource(evaluation.cited_source_index)}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-
-          {questions.length > 0 && questions.every((q) => q.answered) && (
-            <div className="border border-[#ddd4f6] rounded-xl p-4 bg-white/82 space-y-2">
-              <div className="text-sm text-slate-900">🎓 Session Complete</div>
-              <div className="text-xs text-slate-600">
-                Score: {score.correct}/3 correct, {score.partial}/3 partial
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={handleNotionSave}
-                  className="px-3 py-2 rounded-lg border border-[#ddd4f6] bg-white/80 text-xs text-slate-700 hover:bg-[#f6f2ff]"
-                >
-                  💾 Save to Notion
-                </button>
-                <button
-                  type="button"
-                  onClick={resetSession}
-                  className="px-3 py-2 rounded-lg border border-[#ddd4f6] bg-white/80 text-xs text-slate-700 hover:bg-[#f6f2ff]"
-                >
-                  🔄 New Session
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={handleNotionSave}
-            className="px-4 py-2 rounded-lg border border-[#ddd4f6] bg-white/80 text-sm text-slate-700 hover:bg-[#f6f2ff]"
-          >
-            💾 Save to Notion
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const confirmed = window.confirm("Leave this session and return to setup?")
-              if (confirmed) resetSession()
-            }}
-            className="px-4 py-2 rounded-lg border border-[#ddd4f6] bg-white/80 text-sm text-slate-700 hover:bg-[#f6f2ff]"
-          >
-            ← Back to Setup
-          </button>
-        </div>
+      <div className="bg-[#F5F2FD] border border-[#7A5BB5]/20 rounded-xl p-5 text-center space-y-3">
+        <div className="text-2xl">🧠</div>
+        <p className="text-sm font-bold text-[#3D344D]">Study Session Ready</p>
+        <p className="text-xs text-[#7A5BB5] font-medium leading-relaxed">
+          Your personal teaching plan and knowledge map are now available in the main canvas.
+        </p>
+        <button
+          onClick={resetSession}
+          className="w-full py-2 rounded-lg border border-[#7A5BB5] text-[#7A5BB5] text-xs font-bold hover:bg-[#7A5BB5] hover:text-white transition-all"
+        >
+          Start New Session
+        </button>
       </div>
     )
   }
 
   return (
     <div className="surface-premium rounded-2xl p-4 space-y-4 sm:p-5">
-      <div className="space-y-2">
-        <label className="text-xs text-slate-500 uppercase tracking-wider">
+      <div className="space-y-3">
+        <label className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#9B7FD4] border-b border-[#E8E0F0] pb-2 mb-4 block">
           What do you want to understand deeply?
         </label>
         <textarea
           value={learningGoal}
           onChange={(e) => setLearningGoal(e.target.value)}
           placeholder="e.g. I want to deeply understand how transformer attention actually works"
-          className="w-full min-h-[104px] bg-white/80 border border-[#ddd4f6] rounded-lg px-3 py-2 text-sm text-slate-800"
+          className="w-full min-h-[104px] bg-white border border-[#E8E0F0] rounded-xl px-4 py-3 text-[1.02rem] text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-[#CDBAEF] transition-all shadow-sm"
         />
       </div>
 
-      <div className="space-y-2">
-        <div className="text-xs text-slate-500 uppercase tracking-wider">
+      <div className="space-y-3">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#9B7FD4] border-b border-[#E8E0F0] pb-2 mb-4 block">
           Your current level with this topic
         </div>
         <div className="flex flex-wrap gap-2">
@@ -545,10 +377,10 @@ export function StudySessionMode() {
               key={level.key}
               type="button"
               onClick={() => setStudentLevel(level.key as StudentLevel)}
-              className={`px-3 py-2 rounded-lg text-xs border ${
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
                 studentLevel === level.key
-                  ? "bg-white text-black border-white"
-                  : "border-[#ddd4f6] bg-white/80 text-slate-700"
+                  ? "bg-[#7A5BB5] text-white shadow-md border border-[#7A5BB5]"
+                  : "bg-white border border-[#E8E0F0] text-foreground hover:border-[#7A5BB5] hover:text-[#7A5BB5]"
               }`}
             >
               {level.label}
@@ -557,8 +389,8 @@ export function StudySessionMode() {
         </div>
       </div>
 
-      <div className="space-y-2.5">
-        <div className="text-xs text-slate-500 uppercase tracking-wider">Add your sources (2–4)</div>
+      <div className="space-y-3">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#9B7FD4] border-b border-[#E8E0F0] pb-2 mb-4 block">Add your sources (2–4)</div>
         {sources.map((source) => (
           <div key={source.id} className="flex flex-wrap items-center gap-2">
             <select
@@ -570,7 +402,7 @@ export function StudySessionMode() {
                   file: null,
                 })
               }
-              className="bg-white/80 border border-[#ddd4f6] rounded-lg px-2 py-2 text-xs text-slate-700"
+              className="bg-white border border-[#E8E0F0] rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-[#7A5BB5] focus:ring-1 focus:ring-[#7A5BB5] transition-colors"
             >
               <option value="youtube">YouTube</option>
               <option value="article">Article</option>
@@ -583,28 +415,30 @@ export function StudySessionMode() {
                 onChange={(e) =>
                   handleSourceChange(source.id, {
                     file: e.target.files?.[0] || null,
+                    url: ""
                   })
                 }
-                className="text-xs text-slate-700"
+                className="text-sm text-foreground file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[#F0EBF8] file:text-[#7A5BB5] hover:file:bg-[#E8E0F0]"
               />
             ) : (
               <input
                 type="text"
-                value={source.url}
+                value={source.url || ""}
                 onChange={(e) =>
                   handleSourceChange(source.id, {
                     url: e.target.value,
+                    file: null
                   })
                 }
                 placeholder={source.type === "youtube" ? "YouTube URL" : "Article URL"}
-                className="flex-1 bg-white/80 border border-[#ddd4f6] rounded-lg px-3 py-2 text-xs text-slate-700"
+                className="flex-1 bg-white border border-[#E8E0F0] rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-[#7A5BB5] focus:ring-1 focus:ring-[#7A5BB5] transition-colors"
               />
             )}
             {sources.length > 2 && (
               <button
                 type="button"
                 onClick={() => handleRemoveSource(source.id)}
-                className="text-xs text-red-600 hover:text-red-700"
+                className="text-sm text-[#A0527A] hover:text-[#7d3b5b] p-2"
               >
                 ✕
               </button>
@@ -615,9 +449,9 @@ export function StudySessionMode() {
           type="button"
           disabled={sources.length >= 4}
           onClick={handleAddSource}
-          className="text-xs text-slate-700 hover:text-slate-900 disabled:text-slate-300"
+          className="flex items-center gap-1.5 text-sm font-medium text-[#7A5BB5] hover:text-[#5B428A] disabled:text-slate-300 disabled:cursor-not-allowed transition-colors"
         >
-          + Add another source
+          <span>+</span> Add another source
         </button>
       </div>
 
@@ -627,9 +461,9 @@ export function StudySessionMode() {
         type="button"
         disabled={!canStart}
         onClick={handleStartSession}
-        className="w-full px-4 py-3 rounded-lg border border-[#ddd4f6] bg-white text-black text-sm disabled:opacity-50"
+        className="w-full h-12 rounded-xl bg-[#7A5BB5] flex items-center justify-center text-white font-bold text-[16px] transition-all hover:bg-[#6847a1] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        🎓 Start Learning Session
+        Start Learning Session 🧠
       </button>
     </div>
   )

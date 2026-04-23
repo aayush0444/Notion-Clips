@@ -788,10 +788,38 @@ def push_timestamp_notes(
     if timestamp_notes:
         for item in timestamp_notes[:200]:
             label = str(item.get("label") or item.get("timestamp") or "00:00")[:20]
-            note = str(item.get("note") or "").strip()[:1800]
-            title = str(item.get("title") or "").strip()[:180]
+            
+            # Resolve fields with fallbacks for AI-generated content
+            raw_note = str(item.get("note") or "").strip()
+            raw_title = str(item.get("title") or "").strip()
+            raw_quote = str(item.get("quote") or "").strip()
+            raw_relevance = str(item.get("relevance") or "").strip()
+
+            # Smart Mapping Logic
+            # Title: Preference -> title -> relevance -> clipped note/quote
+            title = raw_title or raw_relevance
+            if not title:
+                text_for_title = raw_note or raw_quote
+                if text_for_title:
+                    words = text_for_title.split()
+                    title = " ".join(words[:10]) + ("..." if len(words) > 10 else "")
+            
             if not title:
                 title = f"Moment at {label}"
+            title = title[:180]
+
+            # Note: Preference -> quote + note (if different)
+            note_parts = []
+            if raw_quote:
+                note_parts.append(f'"{raw_quote}"')
+            
+            # Only add note/relevance if they aren't already captured in title or quote
+            if raw_note and raw_note not in [raw_quote, title]:
+                note_parts.append(raw_note)
+            elif raw_relevance and raw_relevance != title:
+                note_parts.append(f"Relevance: {raw_relevance}")
+
+            note = "\n".join(note_parts).strip()[:1800]
             seconds_raw = item.get("seconds")
             try:
                 seconds = int(seconds_raw) if seconds_raw is not None else None

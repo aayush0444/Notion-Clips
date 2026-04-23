@@ -1,7 +1,7 @@
 "use client"
 
 import React, { createContext, useContext, useEffect, useState } from 'react'
-import { Mode } from './types'
+import { Mode, ChatMessage } from './types'
 import { getSupabaseClient } from './supabaseClient'
 import { backendUrl } from './backendUrl'
 
@@ -56,6 +56,7 @@ type PersistedAppState = {
   transcriptCacheHit: boolean | null
   duration: number | null
   wordCount: number | null
+  chatHistory: ChatMessage[]
 }
 
 interface AppState {
@@ -103,6 +104,8 @@ interface AppState {
   setDuration: (val: number | null) => void
   wordCount: number | null
   setWordCount: (val: number | null) => void
+  chatHistory: ChatMessage[]
+  setChatHistory: (val: ChatMessage[]) => void
   reset: () => void
 }
 
@@ -129,6 +132,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setTranscriptCacheHit(null)
       setDuration(null)
       setWordCount(null)
+      setChatHistory([])
       setNotionPageId(null)
 
       if (val !== 'youtube') {
@@ -158,6 +162,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [transcriptCacheHit, setTranscriptCacheHit] = useState<boolean | null>(null)
   const [duration, setDuration] = useState<number | null>(null)
   const [wordCount, setWordCount] = useState<number | null>(null)
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -184,6 +189,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (typeof saved.transcriptCacheHit === "boolean" || saved.transcriptCacheHit === null) setTranscriptCacheHit(saved.transcriptCacheHit)
         if (typeof saved.duration === "number" || saved.duration === null) setDuration(saved.duration)
         if (typeof saved.wordCount === "number" || saved.wordCount === null) setWordCount(saved.wordCount)
+        if (Array.isArray(saved.chatHistory)) setChatHistory(saved.chatHistory)
       }
     } catch {
       // Ignore persisted state parse errors.
@@ -209,6 +215,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       transcriptCacheHit: allowPersistedResults ? transcriptCacheHit : null,
       duration: allowPersistedResults ? duration : null,
       wordCount: allowPersistedResults ? wordCount : null,
+      chatHistory: allowPersistedResults ? chatHistory : [],
     }
     try {
       window.localStorage.setItem(APP_STATE_KEY, JSON.stringify(payload))
@@ -231,6 +238,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     transcriptCacheHit,
     duration,
     wordCount,
+    chatHistory,
   ])
 
   useEffect(() => {
@@ -359,6 +367,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setTranscriptCacheHit(null)
     setDuration(null)
     setWordCount(null)
+    setChatHistory([])
     if (typeof window !== "undefined") {
       window.localStorage.removeItem(APP_STATE_KEY)
     }
@@ -379,7 +388,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       extractCacheHit, setExtractCacheHit,
       transcriptCacheHit, setTranscriptCacheHit,
       duration, setDuration,
-      wordCount, setWordCount, reset
+      wordCount, setWordCount,
+      chatHistory, setChatHistory,
+      reset
     }}>
       {children}
     </AppContext.Provider>

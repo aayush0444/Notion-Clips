@@ -12,11 +12,11 @@ def extract_text_from_pdf(file_bytes: bytes) -> Tuple[str, str]:
     - title: first non-empty line or "Untitled Document"
     - full_text: concatenated page text (max 50k chars)
     """
-    doc = fitz.open(stream=file_bytes, filetype="pdf")
-    pages = []
-    for page in doc:
-        pages.append(page.get_text())
-    full_text = "\n".join(pages).strip()
+    with fitz.open(stream=file_bytes, filetype="pdf") as doc:
+        pages = []
+        for page in doc:
+            pages.append(page.get_text())
+        full_text = "\n".join(pages).strip()
 
     lines = [line.strip() for line in full_text.split("\n") if line.strip()]
     title = lines[0][:100] if lines else "Untitled Document"

@@ -14,13 +14,14 @@ from typing import Any, Dict, List, Literal, Optional
 import requests
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from backend.content_ingestion import extract_text_from_pdf, extract_text_from_url
 from backend.notion_oauth import router as notion_oauth_router
-from backend.smart_watch import router as smart_watch_router
+from backend.smart_watch import router as smart_watch_router, get_transcript_context
 from backend.study_session import router as study_session_router
 from backend.unified_library import router as unified_library_router
 from backend.supabase_client import (
@@ -264,6 +265,8 @@ class PushTimestampNotePayload(BaseModel):
     seconds: int
     note: str
     title: Optional[str] = None
+    quote: Optional[str] = None
+    relevance: Optional[str] = None
 
 
 class TimestampNotePayload(BaseModel):
@@ -271,6 +274,8 @@ class TimestampNotePayload(BaseModel):
     seconds: int
     note: str
     title: Optional[str] = None
+    quote: Optional[str] = None
+    relevance: Optional[str] = None
 
 
 class TimestampNotionRequest(BaseModel):
@@ -349,13 +354,31 @@ app = FastAPI(
     description="REST API for transcript retrieval, AI extraction, Notion pushes, and Notion OAuth.",
 )
 
+# More robust CORS for development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.exception("Global exception caught: %s", exc)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": f"Internal Server Error: {str(exc)}",
+            "message": str(exc),
+            "type": type(exc).__name__
+        },
+        headers={
+            "Access-Control-Allow-Origin": "http://localhost:3000",
+            "Access-Control-Allow-Credentials": "true",
+        }
+    )
 
 app.include_router(notion_oauth_router)
 app.include_router(smart_watch_router)
@@ -368,7 +391,7 @@ PROMPT_VERSION = "v1"
 CAPTURE_STORE: Dict[str, Dict[str, Any]] = {}
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 async def health_check() -> Dict[str, str]:
     """Simple health check endpoint."""
     return {"status": "ok"}
@@ -936,7 +959,23 @@ async def capture_moment(payload: CaptureMomentRequest) -> CaptureMomentResponse
         raise HTTPException(status_code=400, detail="video_url is required")
 
     safe_seconds = max(0, int(payload.seconds))
-    note = (payload.note or "Captured in player").strip() or "Captured in player"
+    note = (payload.note or "").strip()
+    
+    # If note is missing or generic, try to get context from transcript
+    if not note or note == "Captured in player":
+        video_id = extract_video_id(video_url)
+        if video_id:
+            try:
+                cached = get_cached_transcript(video_id)
+                if cached and cached.get("transcript"):
+                    context = get_transcript_context(cached["transcript"], safe_seconds)
+                    if context:
+                        note = context
+            except Exception as exc:
+                logger.warning("Failed to get transcript context for capture: %s", exc)
+    
+    if not note:
+        note = "Captured in player"
 
     bucket = _get_or_init_capture_bucket(
         session_id=session_id,

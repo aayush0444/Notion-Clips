@@ -3,19 +3,19 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import { Navbar } from "@/components/layout/Navbar"
-import { ContentSourceSelector } from "@/components/app/ContentSourceSelector"
-import { ModeSelector } from "@/components/app/ModeSelector"
-import { ProcessButton } from "@/components/app/ProcessButton"
-
-import { SmartWatch } from "@/components/SmartWatch"
+import { WorkspaceControls } from "@/components/app/WorkspaceControls"
+import { WorkspaceModal } from "@/components/app/WorkspaceModal"
+import { Settings } from "lucide-react"
 import { SynthesisMode } from "@/components/app/SynthesisMode"
 import { StudyModeView } from "@/components/app/results/StudyModeView"
 import { WorkModeView } from "@/components/app/results/WorkModeView"
 import { QuickModeView } from "@/components/app/results/QuickModeView"
+import { StudySessionResultsView } from "@/components/app/results/StudySessionResultsView"
 import { QnASection } from "@/components/app/QnASection"
 import { Button } from "@/components/ui/Button"
 import { api } from "@/lib/api"
 import { useAppStore } from "@/lib/store"
+import { cn } from "@/lib/utils"
 
 const loadingMessagesByStage = {
   transcript: "Reading source context...",
@@ -188,20 +188,20 @@ export default function AppPage() {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'extract' | 'synthesis'>('extract')
 
-  const [leftWidth, setLeftWidth] = useState(430)
+  const [leftWidth, setLeftWidth] = useState(480)
   const [isLeftCollapsed, setIsLeftCollapsed] = useState(false)
   const [isResizing, setIsResizing] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const [processingStage, setProcessingStage] = useState<keyof typeof loadingMessagesByStage>("transcript")
-  const [guideIndex, setGuideIndex] = useState(0)
-  const [isGuideHovered, setIsGuideHovered] = useState(false)
+
   const [isPushingNotion, setIsPushingNotion] = useState(false)
   const [pushFeedback, setPushFeedback] = useState<{ type: "success" | "error" | "info" | "warning"; message: string } | null>(null)
   const [notionPageId, setNotionPageId] = useState<string | null>(null)
+  const [isModalOpen, setIsModalOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const wasProcessingRef = useRef(false)
-  const minLeft = 340
-  const maxLeft = 520
+  const minLeft = 380
+  const maxLeft = 600
   const minRight = 620
 
   const extractYoutubeId = useCallback((value: string) => {
@@ -214,78 +214,7 @@ export default function AppPage() {
     setUrl(value)
     setVideoId(extractYoutubeId(value))
   }, [setUrl, setVideoId, extractYoutubeId])
-  const guideSlides = [
-    {
-      eyebrow: "Study Mode",
-      title: "Build a memory-friendly study map",
-      useCase: "Lecture revision and exam prep",
-      reasonLines: [
-        "You watched the video. You remember nothing.",
-        "YouTube hooks you with thumbnails. You click.",
-        "45 minutes later - no notes, no structure, no answer.",
-        "NotionClip fixes the part YouTube never will.",
-      ],
-    },
-    {
-      eyebrow: "NotionClip Workspace",
-      title: "Build output-ready intelligence, not raw notes.",
-      useCase: "Three modes for three intentions",
-      reasonLines: [
-        "Study -> Deep notes, formulas, self-test questions.",
-        "Work -> Watch or Skip verdict, decisions, action items.",
-        "Quick -> 60-second summary and highest-signal takeaways.",
-        "Smart Watch -> Ask first, then decide watch/skim/skip.",
-      ],
-    },
-    {
-      eyebrow: "Product Habit Loop",
-      title: "Why NotionClip beats transcript-dump tools",
-      useCase: "Question-first extraction + cross-source synthesis",
-      reasonLines: [
-        "We do not dump transcripts or generic summaries.",
-        "We ask why you are watching before extraction starts.",
-        "2 videos + 1 PDF + 1 article -> one unified answer.",
-        "Study Session teaches, tests, and corrects progressively.",
-      ],
-    },
-    {
-      eyebrow: "Your Knowledge Library",
-      title: "Everything worth keeping, searchable in Notion",
-      useCase: "Build a repeatable system: source -> mode -> process -> review -> save",
-      reasonLines: [
-        "Every question, answer, and verdict in one place.",
-        "Not a note-taking app. A learning-intelligence layer.",
-        "Between what you consume and what you actually know.",
-        "WATCH LESS. KNOW MORE.",
-      ],
-    },
-  ] as const
 
-  const goPrevGuide = useCallback(() => {
-    setGuideIndex((prev) => (prev === 0 ? guideSlides.length - 1 : prev - 1))
-  }, [guideSlides.length])
-
-  const goNextGuide = useCallback(() => {
-    setGuideIndex((prev) => (prev + 1) % guideSlides.length)
-  }, [guideSlides.length])
-
-  useEffect(() => {
-    if (results || isProcessing || isGuideHovered) return
-    const timer = window.setInterval(() => {
-      goNextGuide()
-    }, 4800)
-    return () => window.clearInterval(timer)
-  }, [results, isProcessing, isGuideHovered, goNextGuide])
-
-  useEffect(() => {
-    if (results || isProcessing) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "ArrowLeft") goPrevGuide()
-      if (event.key === "ArrowRight") goNextGuide()
-    }
-    window.addEventListener("keydown", onKeyDown)
-    return () => window.removeEventListener("keydown", onKeyDown)
-  }, [results, isProcessing, goPrevGuide, goNextGuide])
 
   useEffect(() => {
     if (!isResizing) return
@@ -382,6 +311,8 @@ export default function AppPage() {
     return () => window.clearTimeout(timer)
   }, [pushFeedback])
 
+  const isState1 = !results && !isProcessing && viewMode !== "synthesis"
+
   return (
     <div className="min-h-screen text-foreground relative overflow-hidden">
       <Navbar />
@@ -390,244 +321,267 @@ export default function AppPage() {
         <div className="absolute top-[34%] left-[-10%] h-[420px] w-[420px] rounded-full bg-[#F1DDE8]/45 blur-[95px]" />
         <div className="absolute bottom-[-14%] right-[18%] h-[360px] w-[360px] rounded-full bg-[#DCEEE0]/40 blur-[90px]" />
       </div>
-      <div className="relative z-[1] px-4 pb-8 pt-20 sm:px-6 lg:px-8">
-        <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-6">
-          <div ref={containerRef} className="group/split relative min-h-[calc(100vh-11rem)] xl:flex xl:gap-0">
-        <aside
-          style={isLeftCollapsed ? { width: 0 } : { width: `${leftWidth}px` }}
-          className={`min-w-0 xl:sticky xl:top-24 xl:h-[calc(100vh-8rem)] xl:overscroll-contain ${
-            isLeftCollapsed
-              ? "hidden xl:block xl:min-w-0 xl:max-w-0 xl:overflow-hidden xl:border-0 xl:bg-transparent xl:p-0 xl:shadow-none"
-              : "flex flex-col overflow-y-auto overflow-x-hidden rounded-2xl border border-[#E4D9F5] bg-white/82 p-6 shadow-[0_12px_36px_rgba(61,36,102,0.09)] xl:min-w-[340px] xl:max-w-[520px]"
-          } ${isResizing ? "" : "xl:transition-[width] xl:duration-200 xl:ease-out"}`}
-        >
-          {!isLeftCollapsed && (
-          <div className="flex-1 min-w-0 space-y-6">
-            <div className="py-2.5">
-              <div className="text-center text-sm uppercase tracking-[0.14em] app-text-muted">Workspace Controls</div>
+      <div className="relative z-[1] px-2 pb-8 pt-28 sm:px-6 lg:px-8">
+        <div className="mx-auto flex w-full max-w-full 2xl:max-w-[1800px] flex-col gap-6">
+          {isState1 ? (
+          <div ref={containerRef} className="group/split relative min-h-[calc(100vh-11rem)] lg:flex lg:gap-0">
+            <aside
+              style={isLeftCollapsed ? { width: 0 } : { width: `${leftWidth}px` }}
+              className={`min-w-0 lg:sticky lg:top-28 lg:h-[calc(100vh-8rem)] lg:overscroll-contain ${
+                isLeftCollapsed
+                  ? "hidden lg:block lg:min-w-0 lg:max-w-0 lg:overflow-hidden lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none"
+                  : "flex flex-col overflow-y-auto overflow-x-hidden rounded-2xl border border-[#E4D9F5] bg-white/82 p-4 sm:p-6 shadow-[0_12px_36px_rgba(61,36,102,0.09)] lg:min-w-[380px] lg:max-w-[600px] border-l-[3px] border-l-[#7A5BB5]"
+              } ${isResizing ? "" : "lg:transition-[width] lg:duration-200 lg:ease-out"}`}
+            >
+              {!isLeftCollapsed && (
+                <WorkspaceControls
+                  sessionId={sessionId}
+                  setViewMode={setViewMode}
+                  handleProcessingChange={handleProcessingChange}
+                  setProcessingStage={setProcessingStage}
+                />
+              )}
+            </aside>
+            <div className="relative hidden lg:flex w-[10px] shrink-0 items-start justify-center">
+              {!isLeftCollapsed && (
+                <div
+                  role="separator"
+                  aria-orientation="vertical"
+                  onPointerDown={(event) => {
+                    event.preventDefault()
+                    setIsResizing(true)
+                  }}
+                  className={`absolute inset-0 touch-none transition-colors ${isResizing ? "cursor-col-resize bg-[#E4D9F5]/55" : "cursor-col-resize bg-transparent hover:bg-[#E4D9F5]/28"}`}
+                />
+              )}
+              <div className={`pointer-events-none absolute bottom-0 top-0 left-1/2 w-px -translate-x-1/2 transition-colors ${isResizing ? "bg-[#BDA4E2]" : "bg-[#E4D9F5]"}`} />
+              <button
+                type="button"
+                onClick={handleToggleLeftPanel}
+                aria-label={isLeftCollapsed ? "Expand left panel" : "Collapse left panel"}
+                className={`absolute left-1/2 top-6 z-20 flex h-6 w-6 -translate-x-1/2 items-center justify-center rounded-full border border-[#D8C9EE] bg-white text-[#7A5BB5] shadow-sm transition-all hover:bg-[#F7F2FF] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D8C9EE] ${
+                  isLeftCollapsed ? "opacity-100" : "opacity-0 group-hover/split:opacity-100"
+                }`}
+              >
+                {isLeftCollapsed ? ">" : "<"}
+              </button>
             </div>
-
-            <div className="min-w-0 overflow-hidden rounded-xl border border-[#E8E2F6] bg-white/90 p-4">
-              <ContentSourceSelector />
-            </div>
-
-            {sourceType === "youtube" && (
-              <div className="min-w-0 overflow-hidden rounded-xl border border-[#F1E3C8] bg-[#FFF9EE] p-4">
-                <div className="mb-3">
-                  <div className="text-xs uppercase tracking-[0.12em] text-[#9D7C3F]">Smart Watch</div>
-                  <div className="mt-1.5 text-[1.02rem] leading-relaxed text-[#6A5A38] sm:text-base">
-                    {url
-                      ? "YouTube-only pre-check is ready. Toggle Smart Watch on to decide watch, skim, or skip."
-                      : "Smart Watch works only with YouTube URLs. Paste a YouTube link, then toggle it on."}
+            <section className="min-w-0 flex-1 rounded-2xl border border-[#E4D9F5] bg-white/76 p-6 shadow-[0_12px_36px_rgba(61,36,102,0.09)] sm:p-7 lg:p-9 lg:h-[calc(100vh-8rem)] lg:overflow-y-auto lg:overscroll-contain">
+              
+              <div className="h-full min-h-[60vh] flex flex-col justify-between p-2 sm:p-4">
+                <div className="w-full">
+                  <div className="mb-10">
+                    <h2 className="text-[2.25rem] font-bold text-[#3D344D] tracking-tight leading-[1.1]">Your AI learning toolkit</h2>
+                    <p className="text-[16px] text-[#7D748C] mt-2 font-medium">Select a feature to configure your workspace</p>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <motion.button
+                      whileHover={{ y: -4, transition: { duration: 0.2 } }}
+                      onClick={() => { setSourceType("youtube"); setMode("study"); }}
+                      className={cn(
+                        "flex flex-col text-left rounded-[18px] p-6 border transition-all duration-300 relative overflow-hidden",
+                        sourceType === "youtube"
+                          ? "bg-[#F5F2FD] border-[#7A5BB5] shadow-[0_12px_24px_rgba(122,91,181,0.08)] ring-1 ring-[#7A5BB5]/20"
+                          : "bg-white border-[#E8E0F0] hover:border-[#7A5BB5]/40 hover:shadow-[0_8px_20px_rgba(122,91,181,0.04)]"
+                      )}
+                    >
+                      <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center text-xl mb-4", sourceType === "youtube" ? "bg-[#7A5BB5] text-white" : "bg-[#F5F2FD] text-[#7A5BB5]")}>⚡</div>
+                      <h3 className="text-[1.1rem] font-bold text-[#3D344D] tracking-tight">Smart Watch</h3>
+                      <p className="text-[14px] text-[#7D748C] mt-2 leading-relaxed font-medium">Get a Watch / Skim / Skip verdict before you waste 45 minutes</p>
+                      <div className="mt-5 flex items-center gap-2">
+                        <span className={cn("text-[10px] uppercase font-bold tracking-[0.08em] px-2.5 py-1 rounded-full border", sourceType === "youtube" ? "bg-[#7A5BB5]/10 border-[#7A5BB5]/20 text-[#7A5BB5]" : "bg-gray-50 border-gray-100 text-[#9B7FD4]")}>YouTube only</span>
+                      </div>
+                    </motion.button>
+                    
+                    <motion.button
+                      whileHover={{ y: -4, transition: { duration: 0.2 } }}
+                      onClick={() => { setMode("study"); setSourceType("youtube"); }}
+                      className={cn(
+                        "flex flex-col text-left rounded-[18px] p-6 border transition-all duration-300 relative overflow-hidden",
+                        mode === "study" && sourceType !== "study_session"
+                          ? "bg-[#F5F2FD] border-[#7A5BB5] shadow-[0_12px_24px_rgba(122,91,181,0.08)] ring-1 ring-[#7A5BB5]/20"
+                          : "bg-white border-[#E8E0F0] hover:border-[#7A5BB5]/40 hover:shadow-[0_8px_20px_rgba(122,91,181,0.04)]"
+                      )}
+                    >
+                      <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center text-xl mb-4", mode === "study" && sourceType !== "study_session" ? "bg-[#7A5BB5] text-white" : "bg-[#F5F2FD] text-[#7A5BB5]")}>📚</div>
+                      <h3 className="text-[1.1rem] font-bold text-[#3D344D] tracking-tight">Study Mode</h3>
+                      <p className="text-[14px] text-[#7D748C] mt-2 leading-relaxed font-medium">Deep notes, formulas, and self-test questions from any content</p>
+                      <div className="mt-5 flex items-center gap-2">
+                        <span className={cn("text-[10px] uppercase font-bold tracking-[0.08em] px-2.5 py-1 rounded-full border", mode === "study" && sourceType !== "study_session" ? "bg-[#7A5BB5]/10 border-[#7A5BB5]/20 text-[#7A5BB5]" : "bg-gray-50 border-gray-100 text-[#9B7FD4]")}>YouTube · PDF · Article</span>
+                      </div>
+                    </motion.button>
+                    
+                    <motion.button
+                      whileHover={{ y: -4, transition: { duration: 0.2 } }}
+                      onClick={() => { setSourceType("study_session"); }}
+                      className={cn(
+                        "flex flex-col text-left rounded-[18px] p-6 border transition-all duration-300 relative overflow-hidden",
+                        sourceType === "study_session"
+                          ? "bg-[#F5F2FD] border-[#7A5BB5] shadow-[0_12px_24px_rgba(122,91,181,0.08)] ring-1 ring-[#7A5BB5]/20"
+                          : "bg-white border-[#E8E0F0] hover:border-[#7A5BB5]/40 hover:shadow-[0_8px_20px_rgba(122,91,181,0.04)]"
+                      )}
+                    >
+                      <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center text-xl mb-4", sourceType === "study_session" ? "bg-[#7A5BB5] text-white" : "bg-[#F5F2FD] text-[#7A5BB5]")}>🧠</div>
+                      <h3 className="text-[1.1rem] font-bold text-[#3D344D] tracking-tight">Study Sessions</h3>
+                      <p className="text-[14px] text-[#7D748C] mt-2 leading-relaxed font-medium">Combine multiple sources into one knowledge map with AI tutoring</p>
+                      <div className="mt-5 flex items-center gap-2">
+                        <span className={cn("text-[10px] uppercase font-bold tracking-[0.08em] px-2.5 py-1 rounded-full border", sourceType === "study_session" ? "bg-[#7A5BB5]/10 border-[#7A5BB5]/20 text-[#7A5BB5]" : "bg-gray-50 border-gray-100 text-[#9B7FD4]")}>Multi-source</span>
+                      </div>
+                    </motion.button>
+                    
+                    <motion.button
+                      whileHover={{ y: -4, transition: { duration: 0.2 } }}
+                      onClick={() => { setMode("work"); setSourceType("youtube"); }}
+                      className={cn(
+                        "flex flex-col text-left rounded-[18px] p-6 border transition-all duration-300 relative overflow-hidden",
+                        mode === "work" && sourceType !== "study_session"
+                          ? "bg-[#F5F2FD] border-[#7A5BB5] shadow-[0_12px_24px_rgba(122,91,181,0.08)] ring-1 ring-[#7A5BB5]/20"
+                          : "bg-white border-[#E8E0F0] hover:border-[#7A5BB5]/40 hover:shadow-[0_8px_20px_rgba(122,91,181,0.04)]"
+                      )}
+                    >
+                      <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center text-xl mb-4", mode === "work" && sourceType !== "study_session" ? "bg-[#7A5BB5] text-white" : "bg-[#F5F2FD] text-[#7A5BB5]")}>💼</div>
+                      <h3 className="text-[1.1rem] font-bold text-[#3D344D] tracking-tight">Work Mode</h3>
+                      <p className="text-[14px] text-[#7D748C] mt-2 leading-relaxed font-medium">Action items, tools mentioned, and decisions from any video or article</p>
+                      <div className="mt-5 flex items-center gap-2">
+                        <span className={cn("text-[10px] uppercase font-bold tracking-[0.08em] px-2.5 py-1 rounded-full border", mode === "work" && sourceType !== "study_session" ? "bg-[#7A5BB5]/10 border-[#7A5BB5]/20 text-[#7A5BB5]" : "bg-gray-50 border-gray-100 text-[#9B7FD4]")}>YouTube · PDF · Article</span>
+                      </div>
+                    </motion.button>
                   </div>
                 </div>
-                <SmartWatch videoUrl={url} sessionId={sessionId} />
-              </div>
-            )}
-
-            {sourceType !== "study_session" && (
-              <div className="min-w-0 overflow-hidden rounded-xl border border-[#E8E2F6] bg-white/90 p-4">
-                <ModeSelector onViewModeChange={setViewMode} />
-              </div>
-            )}
-
-            {sourceType !== "study_session" && (
-              <div className="min-w-0 overflow-hidden rounded-xl border border-[#E8E2F6] bg-white/90 p-4">
-                <ProcessButton onProcessingChange={handleProcessingChange} onStageChange={setProcessingStage} />
-              </div>
-            )}
-
-          </div>
-          )}
-        </aside>
-        <div className="relative hidden xl:flex w-[10px] shrink-0 items-start justify-center">
-          {!isLeftCollapsed && (
-            <div
-              role="separator"
-              aria-orientation="vertical"
-              onPointerDown={(event) => {
-                event.preventDefault()
-                setIsResizing(true)
-              }}
-              className={`absolute inset-0 touch-none transition-colors ${isResizing ? "cursor-col-resize bg-[#E4D9F5]/55" : "cursor-col-resize bg-transparent hover:bg-[#E4D9F5]/28"}`}
-            />
-          )}
-          <div className={`pointer-events-none absolute bottom-0 top-0 left-1/2 w-px -translate-x-1/2 transition-colors ${isResizing ? "bg-[#BDA4E2]" : "bg-[#E4D9F5]"}`} />
-          <button
-            type="button"
-            onClick={handleToggleLeftPanel}
-            aria-label={isLeftCollapsed ? "Expand left panel" : "Collapse left panel"}
-            className={`absolute left-1/2 top-6 z-20 flex h-6 w-6 -translate-x-1/2 items-center justify-center rounded-full border border-[#D8C9EE] bg-white text-[#7A5BB5] shadow-sm transition-all hover:bg-[#F7F2FF] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D8C9EE] ${
-              isLeftCollapsed ? "opacity-100" : "opacity-0 group-hover/split:opacity-100"
-            }`}
-          >
-            {isLeftCollapsed ? ">" : "<"}
-          </button>
-        </div>
-
-        <section className="min-w-0 flex-1 rounded-2xl border border-[#E4D9F5] bg-white/76 p-6 shadow-[0_12px_36px_rgba(61,36,102,0.09)] sm:p-7 lg:p-9 xl:h-[calc(100vh-8rem)] xl:overflow-y-auto xl:overscroll-contain">
-          <div className="w-full space-y-7">
-            <div className="py-2">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm uppercase tracking-[0.14em] app-text-muted">Intelligence Canvas</p>
-                  <p className="mt-2 text-[1.06rem] leading-relaxed text-[#4D3D66] sm:text-lg">
-                    AI output, guidance, and teach-back will appear here.
-                  </p>
+                
+                <div className="mt-10 text-center pt-6 border-t border-[#E8E0F0]/50">
+                  <p className="text-[11px] text-[#9B7FD4] font-medium tracking-wide">Notion OAuth · GPT-4o-mini · Supabase · Zero data retention</p>
                 </div>
-                {results && !isProcessing && viewMode === "extract" && sourceType !== "study_session" && (
-                  <button
-                    type="button"
-                    onClick={handlePushAiNotesToNotion}
-                    disabled={isPushingNotion || !sessionId}
-                    className="rounded-lg border border-[#D6C7EF] bg-[#F7F1FF] px-4 py-2.5 text-sm font-semibold text-[#5E4496] transition hover:border-[#BFA8E4] hover:bg-[#EFE3FF] disabled:cursor-not-allowed disabled:opacity-60 sm:text-base"
+              </div>
+</section>
+          </div>
+        ) : (
+          <div className="group/split relative min-h-[calc(100vh-11rem)] flex flex-col lg:flex-row lg:gap-6">
+            <section className="min-w-0 flex-1 lg:w-[60%] rounded-2xl border border-[#E4D9F5] bg-white/76 p-6 shadow-[0_12px_36px_rgba(61,36,102,0.09)] sm:p-7 lg:p-9 lg:h-[calc(100vh-8rem)] lg:overflow-y-auto lg:overscroll-contain">
+              <div className="w-full space-y-7">
+                <div className="py-2">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm uppercase tracking-[0.14em] app-text-muted">Intelligence Canvas</p>
+                      <p className="mt-2 text-[1.06rem] leading-relaxed text-[#4D3D66] sm:text-lg">
+                        AI output, guidance, and teach-back will appear here.
+                      </p>
+                    </div>
+                    {results && !isProcessing && viewMode === "extract" && sourceType !== "study_session" && (
+                      <button
+                        type="button"
+                        onClick={handlePushAiNotesToNotion}
+                        disabled={isPushingNotion || !sessionId}
+                        className="rounded-lg border border-[#D6C7EF] bg-[#F7F1FF] px-4 py-2.5 text-sm font-semibold text-[#5E4496] transition hover:border-[#BFA8E4] hover:bg-[#EFE3FF] disabled:cursor-not-allowed disabled:opacity-60 sm:text-base"
+                      >
+                        {isPushingNotion ? "Saving notes to Notion..." : "Save AI + Timestamp Notes to Notion"}
+                      </button>
+                    )}
+                  </div>
+                  {pushFeedback && (
+                    <p
+                      className={`mt-3 text-sm font-medium ${
+                        pushFeedback.type === "success" 
+                          ? "text-[#2E7D57]" 
+                          : pushFeedback.type === "error" 
+                          ? "text-[#B34A4A]" 
+                          : pushFeedback.type === "info" 
+                          ? "text-[#6F52A8]" 
+                          : "text-[#D97706]"
+                      }`}
+                    >
+                      {pushFeedback.message}
+                      {pushFeedback.type === "success" && notionPageId && (
+                        <a
+                          href={`https://notion.so/${notionPageId.replace(/-/g, "")}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="ml-2 inline-flex items-center text-[#5E4496] underline underline-offset-2 hover:text-[#7A5BB5]"
+                        >
+                          Open in Notion ↗
+                        </a>
+                      )}
+                    </p>
+                  )}
+                </div>
+
+                {viewMode === 'synthesis' ? (
+                  <motion.div
+                    key="synthesis"
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -12 }}
+                    transition={{ duration: 0.3 }}
+                    className="p-2 sm:p-3"
                   >
-                    {isPushingNotion ? "Saving notes to Notion..." : "Save AI + Timestamp Notes to Notion"}
-                  </button>
+                    <SynthesisMode />
+                  </motion.div>
+                ) : (
+                  <AnimatePresence mode="wait">
+                    {isProcessing ? (
+                      <motion.div
+                        key="loading"
+                        initial={{ opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -12 }}
+                        transition={{ duration: 0.3 }}
+                        className="h-full min-h-[60vh] flex items-center justify-center p-8"
+                      >
+                        <LoadingPanel stage={processingStage} />
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        key="results"
+                        initial={{ opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -12 }}
+                        transition={{ duration: 0.3 }}
+                        className="space-y-8 p-3 sm:p-4"
+                      >
+                        {sourceType !== "study_session" && mode === "study" && (
+                          <StudyModeView data={results} sourceUrl={url} />
+                        )}
+                        {sourceType !== "study_session" && mode === "work" && (
+                          <WorkModeView data={results} sourceUrl={url} />
+                        )}
+                        {sourceType !== "study_session" && mode === "quick" && (
+                          <QuickModeView data={results} sourceUrl={url} />
+                        )}
+                        {sourceType === "study_session" && (
+                          <StudySessionResultsView data={results} />
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 )}
               </div>
-              {pushFeedback && (
-                <p
-                  className={`mt-3 text-sm font-medium ${
-                    pushFeedback.type === "success" 
-                      ? "text-[#2E7D57]" 
-                      : pushFeedback.type === "error" 
-                      ? "text-[#B34A4A]" 
-                      : pushFeedback.type === "info" 
-                      ? "text-[#6F52A8]" 
-                      : "text-[#D97706]"
-                  }`}
-                >
-                  {pushFeedback.message}
-                  {pushFeedback.type === "success" && notionPageId && (
-                    <a
-                      href={`https://notion.so/${notionPageId.replace(/-/g, "")}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="ml-2 inline-flex items-center text-[#5E4496] underline underline-offset-2 hover:text-[#7A5BB5]"
-                    >
-                      Open in Notion ↗
-                    </a>
-                  )}
-                </p>
-              )}
-            </div>
+            </section>
+            
+            <aside className="min-w-0 mt-6 lg:mt-0 lg:w-[40%] rounded-2xl border border-[#E4D9F5] bg-white/76 p-6 shadow-[0_12px_36px_rgba(61,36,102,0.09)] sm:p-7 lg:p-9 lg:h-[calc(100vh-8rem)] flex flex-col">
+              <div className="flex-1 w-full h-full overflow-hidden">
+                <QnASection />
+              </div>
+            </aside>
 
-            {!results && !isProcessing ? (
-              <motion.div
-                key="guide"
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -12 }}
-                transition={{ duration: 0.3 }}
-                className="h-full min-h-[60vh] p-4 sm:p-5"
-              >
-                <div className="w-full">
-                  <div
-                    className="w-full"
-                    onMouseEnter={() => setIsGuideHovered(true)}
-                    onMouseLeave={() => setIsGuideHovered(false)}
-                  >
-                    <AnimatePresence mode="wait">
-                      <motion.div
-                        key={`guide-${guideIndex}`}
-                        initial={{ opacity: 0, x: 26, scale: 0.985 }}
-                        animate={{ opacity: 1, x: 0, scale: 1 }}
-                        exit={{ opacity: 0, x: -24, scale: 0.985 }}
-                        transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
-                        className="p-4 sm:p-6"
-                      >
-                        <div className="text-sm uppercase tracking-[0.14em] text-[#7A5BB5]">{guideSlides[guideIndex].eyebrow}</div>
-                        <h3 className="mt-3 text-[2rem] font-[var(--font-space-grotesk)] leading-tight text-[#2C1F3E] sm:text-[2.15rem]">
-                          {guideSlides[guideIndex].title}
-                        </h3>
-                        <p className="mt-6 text-sm uppercase tracking-[0.14em] text-[#8E7AAE]">Use Case</p>
-                        <p className="mt-2 text-[1.03rem] leading-relaxed text-[#4D3D66] sm:text-lg">{guideSlides[guideIndex].useCase}</p>
-                        <p className="mt-6 text-sm uppercase tracking-[0.14em] text-[#8E7AAE]">Why We Built This</p>
-                        <div className="mt-2.5 space-y-2.5 text-[1.03rem] leading-relaxed text-[#4D3D66] sm:text-lg">
-                          {guideSlides[guideIndex].reasonLines.map((line, idx) => (
-                            <p key={idx}>{line}</p>
-                          ))}
-                        </div>
-                      </motion.div>
-                    </AnimatePresence>
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="fixed bottom-6 left-6 z-40 flex items-center gap-2 rounded-full bg-[#FAF7F2] px-4 py-2.5 text-sm font-semibold text-[#7A5BB5] shadow-[0_4px_20px_rgba(122,91,181,0.25)] border border-[#E4D9F5] transition-all hover:bg-white hover:shadow-[0_8px_32px_rgba(122,91,181,0.32)] hover:-translate-y-0.5"
+            >
+              <Settings className="h-5 w-5" />
+              Workspace Controls
+            </button>
 
-                    <div className="mt-7 flex flex-wrap items-center justify-between gap-4">
-                      <div className="flex items-center gap-2">
-                        {guideSlides.map((_, idx) => (
-                          <button
-                            key={idx}
-                            type="button"
-                            onClick={() => setGuideIndex(idx)}
-                            className={`h-2.5 rounded-full transition-all ${
-                              idx === guideIndex ? "w-7 bg-[#7A5BB5]" : "w-2.5 bg-[#D7C9EF] hover:bg-[#C9B5EA]"
-                            }`}
-                            aria-label={`Go to guide slide ${idx + 1}`}
-                          />
-                        ))}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button variant="outline" className="px-3.5 py-2.5 text-base" onClick={goPrevGuide}>
-                          &lt;- Prev
-                        </Button>
-                        <Button variant="outline" className="px-3.5 py-2.5 text-base" onClick={goNextGuide}>
-                          Next -&gt;
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            ) : viewMode === 'synthesis' ? (
-              <motion.div
-                key="synthesis"
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -12 }}
-                transition={{ duration: 0.3 }}
-                className="p-2 sm:p-3"
-              >
-                <SynthesisMode />
-              </motion.div>
-            ) : (
-              <AnimatePresence mode="wait">
-                {isProcessing ? (
-                <motion.div
-                  key="loading"
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -12 }}
-                  transition={{ duration: 0.3 }}
-                  className="h-full min-h-[60vh] flex items-center justify-center p-8"
-                >
-                  <LoadingPanel stage={processingStage} />
-                </motion.div>
-              ) : (
-                <motion.div
-                  key="results"
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -12 }}
-                  transition={{ duration: 0.3 }}
-                  className="space-y-8 p-3 sm:p-4"
-                >
-                  {mode === "study" && (
-                    <StudyModeView data={results} sourceUrl={url} />
-                  )}
-                  {mode === "work" && (
-                    <WorkModeView data={results} sourceUrl={url} />
-                  )}
-                  {mode === "quick" && (
-                    <QuickModeView data={results} sourceUrl={url} />
-                  )}
-                  <QnASection />
-                </motion.div>
-              )}
-            </AnimatePresence>
-            )}
+            <WorkspaceModal
+              isOpen={isModalOpen}
+              onClose={() => setIsModalOpen(false)}
+              sessionId={sessionId}
+              setViewMode={setViewMode}
+              handleProcessingChange={handleProcessingChange}
+              setProcessingStage={setProcessingStage}
+            />
           </div>
-        </section>
-      </div>
+        )}
         </div>
       </div>
     </div>

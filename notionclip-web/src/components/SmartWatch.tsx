@@ -238,9 +238,14 @@ export function SmartWatch({ videoUrl, sessionId }: SmartWatchProps) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between rounded-lg border border-[#ddd4f6] bg-white/90 px-3 py-2">
-        <div className="text-sm text-slate-800">Smart Watch mode</div>
-        <div className="flex items-center gap-2">
+      <div className="flex items-start justify-between">
+        <div className="flex flex-col gap-0.5">
+          <div className="text-[13px] font-semibold text-slate-800 flex items-center gap-1.5">
+            <span className="text-[#F59E0B]">⚡</span> Smart Watch mode
+          </div>
+          <div className="text-[11px] text-muted">Get Watch/Skim/Skip verdict before watching</div>
+        </div>
+        <div className="flex items-center gap-2 mt-0.5">
           <button
             type="button"
             onClick={() => setEnabled((v) => !v)}

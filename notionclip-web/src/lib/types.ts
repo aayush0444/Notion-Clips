@@ -1,5 +1,11 @@
 export type Mode = 'study' | 'work' | 'quick'
 
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+  notionEdited?: boolean
+}
+
 export interface StudyInsights {
   title: string
   core_concept: string

@@ -1,5 +1,5 @@
-from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import List, Optional
+from pydantic import BaseModel, Field, field_validator, model_validator, AliasChoices
+from typing import List, Optional, Any
 import re
 
 
@@ -445,31 +445,54 @@ class SourceCitation(BaseModel):
 
 
 class ConceptMapping(BaseModel):
-    concept_name: str
-    best_source_index: int
-    best_explanation: str
-    supporting_sources: List[int]
-    timestamp_or_page: str
+    concept_name: str = Field(validation_alias=AliasChoices('concept_name', 'name'))
+    best_source_index: int = Field(validation_alias=AliasChoices('best_source_index', 'best_source', 'source_index'))
+    best_explanation: str = Field(validation_alias=AliasChoices('best_explanation', 'explanation'))
+    supporting_sources: List[int] = Field(default_factory=list)
+    timestamp_or_page: str = Field(validation_alias=AliasChoices('timestamp_or_page', 'location', 'timestamp'))
+
+    @field_validator('best_source_index', mode='before')
+    @classmethod
+    def parse_source_index(cls, v: Any) -> int:
+        if isinstance(v, int):
+            return v
+        if isinstance(v, str):
+            # Match "SOURCE 1" or just "1"
+            match = re.search(r'\d+', v)
+            if match:
+                return int(match.group())
+        return 0
 
 
 class SourceContradiction(BaseModel):
-    topic: str
-    source_a_index: int
-    source_a_says: str
-    source_b_index: int
-    source_b_says: str
-    resolution: Optional[str] = None
+    topic: str = Field(validation_alias=AliasChoices('topic', 'concept'))
+    source_a_index: int = Field(validation_alias=AliasChoices('source_a_index', 'source_a', 'source_A'))
+    source_a_says: str = Field(validation_alias=AliasChoices('source_a_says', 'statement_a', 'statement_A'))
+    source_b_index: int = Field(validation_alias=AliasChoices('source_b_index', 'source_b', 'source_B'))
+    source_b_says: str = Field(validation_alias=AliasChoices('source_b_says', 'statement_b', 'statement_B'))
+    resolution: Optional[str] = Field(default=None, validation_alias=AliasChoices('resolution', 'more_accurate'))
+
+    @field_validator('source_a_index', 'source_b_index', mode='before')
+    @classmethod
+    def parse_index(cls, v: Any) -> int:
+        if isinstance(v, int):
+            return v
+        if isinstance(v, str):
+            match = re.search(r'\d+', v)
+            if match:
+                return int(match.group())
+        return 0
 
 
 class KnowledgeMap(BaseModel):
-    concepts: List[ConceptMapping]
-    agreements: List[str]
-    contradictions: List[SourceContradiction]
-    knowledge_gaps: List[str]
+    concepts: List[ConceptMapping] = Field(default_factory=list)
+    agreements: List[str] = Field(default_factory=list)
+    contradictions: List[SourceContradiction] = Field(default_factory=list)
+    knowledge_gaps: List[str] = Field(default_factory=list)
 
 
 class KnowledgeCheckQuestion(BaseModel):
-    id: str
+    id: Optional[str] = None
     question: str
     type: str
     difficulty: str
@@ -480,22 +503,61 @@ class KnowledgeCheckQuestion(BaseModel):
 
 class TutorOutput(BaseModel):
     foundation: str
-    foundation_source_index: int
-    foundation_timestamp_or_page: str
+    foundation_source_index: int = Field(validation_alias=AliasChoices('foundation_source_index', 'foundation_source', 'source_index'))
+    foundation_timestamp_or_page: str = Field(validation_alias=AliasChoices('foundation_timestamp_or_page', 'location', 'timestamp'))
     core_teaching: str
-    core_citations: List[SourceCitation]
-    common_misconceptions: List[str]
-    knowledge_check: List[KnowledgeCheckQuestion]
-    next_steps: List[str]
+    core_citations: List[SourceCitation] = Field(default_factory=list)
+    common_misconceptions: List[str] = Field(default_factory=list)
+    knowledge_check: List[KnowledgeCheckQuestion] = Field(default_factory=list)
+    next_steps: List[str] = Field(default_factory=list)
+
+    @field_validator('foundation_source_index', mode='before')
+    @classmethod
+    def parse_foundation_index(cls, v: Any) -> int:
+        if isinstance(v, int):
+            return v
+        if isinstance(v, str):
+            match = re.search(r'\d+', v)
+            if match:
+                return int(match.group())
+        return 0
 
 
 class QuestionEvaluation(BaseModel):
-    correct: str
+    correct: str = Field(validation_alias=AliasChoices('correct', 'status', 'result'))
+    
+    @field_validator('correct', mode='before')
+    @classmethod
+    def validate_correctness(cls, v: Any) -> str:
+        if not isinstance(v, str):
+            return "partial"
+        v = v.lower().strip()
+        if v in ("true", "correct", "yes", "right"):
+            return "true"
+        if "partially" in v or "partial" in v:
+            return "partial"
+        if v in ("false", "incorrect", "no", "wrong"):
+            return "false"
+        # Fallback for longer phrases like "The answer is correct"
+        if "incorrect" in v: return "false"
+        if "correct" in v: return "true"
+        return "partial"
     feedback: str
     misconception: Optional[str] = None
     correction: Optional[str] = None
-    ready_to_advance: bool
-    cited_source_index: int
+    ready_to_advance: bool = Field(default=True)
+    cited_source_index: int = Field(validation_alias=AliasChoices('cited_source_index', 'source_index', 'source'))
+
+    @field_validator('cited_source_index', mode='before')
+    @classmethod
+    def parse_cited_index(cls, v: Any) -> int:
+        if isinstance(v, int):
+            return v
+        if isinstance(v, str):
+            match = re.search(r'\d+', v)
+            if match:
+                return int(match.group())
+        return 0
 
 
 # ─── Cross-Source Synthesis ───────────────────────────────────────────────────

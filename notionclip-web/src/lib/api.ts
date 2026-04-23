@@ -25,7 +25,12 @@ async function parseError(res: Response): Promise<string> {
     if (text) {
       try {
         const parsed = JSON.parse(text)
-        detail = parsed?.detail || parsed?.error || parsed?.message || text
+        const rawDetail = parsed?.detail || parsed?.error || parsed?.message || text
+        if (typeof rawDetail === 'object' && rawDetail !== null) {
+          detail = (rawDetail as any).message || (rawDetail as any).error || JSON.stringify(rawDetail)
+        } else {
+          detail = String(rawDetail)
+        }
       } catch {
         detail = text
       }
@@ -520,7 +525,36 @@ export const api = {
       throw new Error(`Synthesis failed (${res.status}): ${detail}`)
     }
     return res.json()
+  },
 
+  async askStudySessionChat(
+    studySessionId: string,
+    question: string,
+    history: any[],
+    sessionId: string,
+    userId?: string | null
+  ): Promise<string> {
+    const safeHistory = (history || []).map((msg: any) => ({
+      role: msg?.role === 'assistant' ? 'assistant' : 'user',
+      content: String(msg?.content || '')
+    }))
+
+    const res = await fetch(`${API_BASE}/study-session/${studySessionId}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question,
+        chat_history: safeHistory,
+        session_id: sessionId,
+        user_id: userId || null
+      })
+    })
+    if (!res.ok) {
+      const detail = await parseError(res)
+      throw new Error(`Chat failed (${res.status}): ${detail}`)
+    }
+    const data = await res.json()
+    return data.answer
   }
 }
 
