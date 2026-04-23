@@ -142,7 +142,7 @@ export function StudySessionResultsView({ data }: { data: StudySession }) {
           <span className="text-lg">📍</span>
           <p className="text-[11px] uppercase font-bold tracking-widest">Foundational Concept</p>
         </div>
-        <p className="text-lg font-medium text-[#3D344D] leading-relaxed italic">"{tutor.foundation}"</p>
+        <p className="text-lg font-medium text-[#3D344D] leading-relaxed italic">&quot;{tutor.foundation}&quot;</p>
         <div className="pt-3 border-t border-[#F0EBF8]">
           <p className="text-xs text-[#7D748C]">
             Best explained in <span className="font-bold text-[#7A5BB5]">{sourceTitle(tutor.foundation_source_index)}</span> {tutor.foundation_timestamp_or_page}
