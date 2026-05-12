@@ -328,9 +328,9 @@ export default function HomePage() {
         .hero-sub { font-size: 18px; color: var(--ink-mid); max-width: 500px; margin: 0 auto 52px; font-weight: 300; line-height: 1.8; animation: fadeUp 0.65s ease 0.2s both; }
         .hero-actions { display: flex; align-items: center; justify-content: center; gap: 16px; margin-bottom: 80px; animation: fadeUp 0.65s ease 0.3s both; }
 
-        .btn-primary { background: var(--lilac-deep); color: #fff; padding: 15px 36px; border-radius: 100px; font-size: 15px; font-weight: 500; text-decoration: none; transition: background 0.2s, transform 0.2s, box-shadow 0.2s; box-shadow: 0 6px 32px rgba(122, 91, 181, 0.28); letter-spacing: 0.01em; position: relative; overflow: hidden; }
+        .btn-primary { background: var(--lilac-pale); color: #fff; padding: 15px 36px; border-radius: 100px; font-size: 15px; font-weight: 500; text-decoration: none; transition: background 0.2s, transform 0.2s, box-shadow 0.2s; box-shadow: 0 6px 32px rgba(122, 91, 181, 0.28); letter-spacing: 0.01em; position: relative; overflow: hidden; }
         .btn-primary::after { content: ''; position: absolute; inset: 0; background: linear-gradient(135deg, rgba(255, 255, 255, 0.18), transparent); opacity: 0; transition: opacity 0.2s; }
-        .btn-primary:hover { background: var(--lilac-dark); transform: translateY(-2px); box-shadow: 0 12px 48px rgba(122, 91, 181, 0.35); }
+        .btn-primary:hover { background: var(--lilac-soft); transform: translateY(-2px); box-shadow: 0 12px 48px rgba(122, 91, 181, 0.35); }
         .btn-primary:hover::after { opacity: 1; }
         .btn-ghost { color: var(--ink-mid); padding: 15px 20px; border-radius: 100px; font-size: 15px; font-weight: 400; text-decoration: none; transition: color 0.2s; display: flex; align-items: center; gap: 6px; }
         .btn-ghost:hover { color: var(--ink); }
